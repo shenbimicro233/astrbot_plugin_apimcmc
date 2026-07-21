@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>监控配置管理</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --text: #111827;
+    --text-secondary: #6b7280;
+    --border: #e5e7eb;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-soft: #eff6ff;
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
+    --danger-soft: #fef2f2;
+    --success: #10b981;
+    --success-soft: #ecfdf5;
+    --warning: #f59e0b;
+    --warning-soft: #fffbeb;
+    --radius: 14px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow: 0 4px 12px rgba(0,0,0,0.06);
+    --shadow-lg: 0 20px 40px rgba(0,0,0,0.12);
+    --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    padding: 24px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  .page-header {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    justify-content: space-between; margin-bottom: 24px;
+  }
+  .page-title h1 {
+    font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+  }
+  .page-title p {
+    color: var(--text-secondary); font-size: 14px; margin-top: 4px;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 8px; padding: 10px 18px; border: none; border-radius: 10px;
+    font-size: 14px; font-weight: 500; cursor: pointer; transition: var(--transition);
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--primary); color: #fff;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  }
+  .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-secondary:hover { background: #d1d5db; }
+  .btn-danger { background: var(--danger-soft); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-sm { padding: 6px 12px; font-size: 13px; border-radius: 8px; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+  /* Stats */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px;
+    margin-bottom: 22px;
+  }
+  .stat-card {
+    background: var(--panel); border-radius: var(--radius); padding: 18px;
+    box-shadow: var(--shadow); border: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 8px;
+    transition: var(--transition);
+  }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .stat-label { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .stat-value { font-size: 28px; font-weight: 700; }
+  .stat-value.on { color: var(--success); }
+  .stat-value.off { color: var(--text-secondary); }
+  .stat-value.warn { color: var(--warning); }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    justify-content: space-between; margin-bottom: 16px;
+  }
+  .search-box {
+    position: relative; flex: 1; min-width: 220px; max-width: 420px;
+  }
+  .search-box input {
+    width: 100%; padding: 10px 14px 10px 36px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 14px; outline: none; background: var(--panel);
+    transition: var(--transition);
+  }
+  .search-box input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .search-box svg {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; color: var(--text-secondary);
+  }
+  .filter-tags {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px;
+    border-radius: 20px; font-size: 13px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text-secondary); transition: var(--transition);
+  }
+  .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .chip:hover:not(.active) { background: var(--primary-soft); color: var(--primary); }
+
+  /* Cards grid */
+  .cards-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;
+    margin-bottom: 28px;
+  }
+  .card {
+    background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border);
+    box-shadow: var(--shadow); overflow: hidden; transition: var(--transition);
+    display: flex; flex-direction: column;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: #bfdbfe; }
+  .card-header {
+    padding: 16px; border-bottom: 1px solid var(--border); display: flex;
+    justify-content: space-between; align-items: flex-start; gap: 12px;
+  }
+  .card-title { font-weight: 600; font-size: 15px; }
+  .card-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .card-body { padding: 16px; font-size: 14px; color: var(--text-secondary); flex: 1; }
+  .card-body .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .card-body .row:last-child { margin-bottom: 0; }
+  .card-body .k { color: var(--text-secondary); }
+  .card-body .v { color: var(--text); font-weight: 500; }
+  .card-footer {
+    padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px;
+    justify-content: flex-end; background: #fafafa;
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+    border-radius: 12px; font-size: 12px; font-weight: 600;
+  }
+  .badge-on { background: var(--success-soft); color: #065f46; }
+  .badge-on::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .badge-off { background: #f3f4f6; color: var(--text-secondary); }
+  .badge-off::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-secondary); }
+  .badge-java { background: var(--warning-soft); color: #92400e; }
+  .badge-bedrock { background: var(--primary-soft); color: var(--primary); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 56px 24px; color: var(--text-secondary);
+    background: var(--panel); border-radius: var(--radius); border: 1px dashed var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+  .empty-state svg { width: 64px; height: 64px; margin-bottom: 16px; color: #d1d5db; }
+  .empty-state h3 { font-size: 16px; color: var(--text); margin-bottom: 6px; }
+  .empty-state p { font-size: 14px; }
+
+  /* Skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+    background-size: 200% 100%; border-radius: 8px; animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .card.skeleton-card { pointer-events: none; }
+  .card.skeleton-card .card-header, .card.skeleton-card .card-body, .card.skeleton-card .card-footer { opacity: 0.55; }
+
+  /* Logs */
+  .log-section {
+    background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border);
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .log-header {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #fafafa, #fff);
+  }
+  .log-title-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 200px; }
+  .log-title { font-size: 16px; font-weight: 700; }
+  .log-status-line { font-size: 13px; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-secondary); }
+  .status-dot.on { background: var(--success); box-shadow: 0 0 0 4px rgba(16,185,129,0.15); }
+  .status-dot.off { background: var(--text-secondary); }
+  .log-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .log-actions label.chk {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; user-select: none;
+  }
+  .log-actions label.chk input { width: 16px; height: 16px; accent-color: var(--primary); }
+  .log-search {
+    position: relative;
+  }
+  .log-search input {
+    padding: 6px 10px 6px 28px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; outline: none; background: var(--bg); width: 180px;
+  }
+  .log-search input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .log-search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-secondary); }
+  .log-console {
+    background: #0b1220; color: #d1d5db;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.6; height: 340px; overflow-y: auto; padding: 12px 14px;
+  }
+  .log-console .log-empty { color: #6b7280; text-align: center; padding: 64px 12px; }
+  .log-line { display: flex; gap: 10px; white-space: pre-wrap; word-break: break-word; margin: 0 0 4px; padding: 2px 0; }
+  .log-line:hover { background: rgba(255,255,255,0.03); }
+  .log-line .ts { color: #6b7280; flex-shrink: 0; min-width: 84px; }
+  .log-line .lv { font-weight: 700; flex-shrink: 0; min-width: 52px; }
+  .lv-INFO { color: #93c5fd; }
+  .lv-WARN { color: #fbbf24; }
+  .lv-ERROR { color: #f87171; }
+  .lv-CHANGED { color: #34d399; }
+  .log-line .msg { color: #e5e7eb; }
+  .log-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-secondary);
+    background: #fafafa;
+  }
+  .log-highlight { background: rgba(251, 191, 36, 0.18) !important; border-radius: 3px; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 1000;
+    padding: 20px;
+  }
+  .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease; }
+  .modal {
+    background: var(--panel); border-radius: 18px; padding: 28px; width: 520px; max-width: 100%;
+    box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto; animation: slideUp 0.25s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .modal h2 { font-size: 18px; margin-bottom: 20px; font-weight: 700; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .form-group label .req { color: var(--danger); }
+  .form-group input, .form-group select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 14px; outline: none; transition: var(--transition); background: var(--bg);
+  }
+  .form-group input:focus, .form-group select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); background: #fff; }
+  .form-group input:disabled { opacity: 0.7; background: #f3f4f6; }
+  .form-row { display: flex; gap: 14px; }
+  .form-row .form-group { flex: 1; }
+  .form-error { font-size: 12px; color: var(--danger); margin-top: 5px; display: none; }
+  .form-error.show { display: block; }
+  .form-checkbox { display: flex; align-items: center; gap: 8px; }
+  .form-checkbox input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+    padding: 12px 22px; border-radius: 12px; font-size: 14px; font-weight: 500; color: #fff;
+    opacity: 0; transition: all 0.3s ease; z-index: 2000; display: flex; align-items: center; gap: 8px;
+    box-shadow: var(--shadow-lg);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast-success { background: var(--success); }
+  .toast-error { background: var(--danger); }
+  .toast-info { background: var(--primary); }
+
+  /* Confirm */
+  .confirm-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(3px);
+    z-index: 1100; justify-content: center; align-items: center; padding: 20px;
+  }
+  .confirm-overlay.active { display: flex; }
+  .confirm-box {
+    background: var(--panel); border-radius: 18px; padding: 26px; width: 380px; max-width: 100%;
+    box-shadow: var(--shadow-lg); text-align: center;
+  }
+  .confirm-box h3 { font-size: 17px; margin-bottom: 8px; }
+  .confirm-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    body { padding: 16px; }
+    .page-header { flex-direction: column; align-items: flex-start; }
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .search-box { max-width: 100%; }
+    .cards-grid { grid-template-columns: 1fr; }
+    .log-actions { width: 100%; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <div class="page-title">
+    <h1>Minecraft 服务器监控</h1>
+    <p>为每个 QQ 群独立配置要监控的服务器，并实时查看运行日志。</p>
+  </div>
+  <button class="btn btn-primary" id="addBtn">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    添加配置
+  </button>
+</header>
+
+<!-- 统计卡片 -->
+<section class="stats-grid" id="statsGrid">
+  <div class="stat-card">
+    <span class="stat-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg> 总配置数</span>
+    <span class="stat-value" id="statTotal">—</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> 已启用</span>
+    <span class="stat-value on" id="statEnabled">—</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> Java 服务器</span>
+    <span class="stat-value" id="statJava">—</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> Bedrock 服务器</span>
+    <span class="stat-value" id="statBedrock">—</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> 监控状态</span>
+    <span class="stat-value off" id="statMonitor">—</span>
+  </div>
+</section>
+
+<!-- 配置区 -->
+<div class="toolbar">
+  <div class="search-box">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    <input id="searchInput" type="text" placeholder="搜索群号、名称或 IP">
+  </div>
+  <div class="filter-tags">
+    <span class="chip active" data-filter="all">全部</span>
+    <span class="chip" data-filter="enabled">已启用</span>
+    <span class="chip" data-filter="disabled">已禁用</span>
+    <span class="chip" data-filter="java">Java</span>
+    <span class="chip" data-filter="bedrock">Bedrock</span>
+  </div>
+</div>
+
+<div class="cards-grid" id="cardsGrid">
+  <!-- 卡片由 JS 渲染 -->
+</div>
+
+<!-- 运行日志 -->
+<section class="log-section" id="logSection">
+  <div class="log-header">
+    <div class="log-title-wrap">
+      <div class="log-title">运行日志</div>
+      <div class="log-status-line">
+        <span><span class="status-dot off" id="monitorDot"></span><span id="monitorStatusText">监控状态未知</span></span>
+        <span id="monitorMetaText"></span>
+      </div>
+    </div>
+    <div class="log-actions">
+      <div class="log-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input id="logSearch" type="text" placeholder="搜索日志">
+      </div>
+      <label class="chk"><input type="checkbox" id="autoRefreshChk" checked> 自动刷新</label>
+      <label class="chk"><input type="checkbox" id="errorsOnlyChk"> 仅错误</label>
+      <button type="button" class="btn btn-secondary btn-sm" id="scrollBottomBtn">回到底部</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="clearLogsBtn">清空</button>
+    </div>
+  </div>
+  <div class="log-console" id="logConsole">
+    <div class="log-empty" id="logEmpty">暂无日志，启动监控后将在此显示检查过程</div>
+  </div>
+  <div class="log-footer">
+    <span id="logCountText">0 条</span>
+    <span id="logFollowText">跟随最新</span>
+  </div>
+</section>
+
+<!-- 配置 Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">添加配置</h2>
+    <form id="configForm" autocomplete="off">
+      <div class="form-group">
+        <label for="f_group_id">QQ 群号 <span class="req">*</span></label>
+        <input id="f_group_id" type="text" placeholder="例：123456789" required>
+        <div class="form-error" id="err_group_id">请输入群号</div>
+      </div>
+      <div class="form-group">
+        <label for="f_name">服务器名称</label>
+        <input id="f_name" type="text" placeholder="例：生存服" value="Minecraft服务器">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f_ip">服务器 IP <span class="req">*</span></label>
+          <input id="f_ip" type="text" placeholder="例：play.example.com" required>
+          <div class="form-error" id="err_ip">请输入服务器地址</div>
+        </div>
+        <div class="form-group" style="max-width: 140px;">
+          <label for="f_port">端口 <span class="req">*</span></label>
+          <input id="f_port" type="number" placeholder="19132" value="19132" required>
+          <div class="form-error" id="err_port">请输入端口</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f_type">服务器类型</label>
+          <select id="f_type">
+            <option value="bedrock">基岩版 (Bedrock)</option>
+            <option value="java">Java 版</option>
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;display:flex;flex-direction:column;">
+          <div class="form-checkbox">
+            <input id="f_enabled" type="checkbox" checked>
+            <label for="f_enabled">启用监控</label>
+          </div>
+          <div class="form-checkbox" style="margin-top:8px;">
+            <input id="f_hitokoto" type="checkbox" checked>
+            <label for="f_hitokoto">附加一言</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">取消</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 确认框 -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h3 id="confirmTitle">确认删除？</h3>
+    <p id="confirmText">该操作不可撤销。</p>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" id="confirmCancel">取消</button>
+      <button class="btn btn-danger" id="confirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <svg id="toastIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>
+  <span id="toastText">提示</span>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
