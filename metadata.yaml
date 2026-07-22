@@ -7,36 +7,3 @@ repo: https://github.com/shenbimicro233/astrbot_plugin_apimcmc
 support_platforms: ["aiocqhttp"]
 astrbot_version: ">=4.0.0"
 license: AGPL-3.0-or-later
-
-config:
-  check_interval:
-    description: "检查间隔（秒）"
-    type: int
-    hint: "每隔多少秒检查一次所有已配置服务器的状态"
-    default: 10
-  enable_auto_monitor:
-    description: "自动启动监控"
-    type: bool
-    hint: "插件加载时是否自动开始监控所有已启用群组的服务器"
-    default: false
-  api_source:
-    description: "API查询源"
-    type: string
-    hint: "选择服务器状态查询API源"
-    default: "mcstatus"
-    options: ["mcstatus", "mcmotdapi"]
-  mcmotdapi_host:
-    description: "mcmotdapi 服务地址"
-    type: string
-    hint: "仅当 API查询源 为 mcmotdapi 时生效。默认公共实例 motd.minebbs.com"
-    default: "motd.minebbs.com"
-  mcmotdapi_ssl:
-    description: "mcmotdapi 启用 HTTPS"
-    type: bool
-    hint: "仅当 API查询源 为 mcmotdapi 时生效。自部署内网可关闭"
-    default: true
-  simple_mode:
-    description: "简化消息格式"
-    type: bool
-    hint: "开启后，发送到群的消息将精简为单行摘要，避免大型服务器刷屏"
-    default: false
