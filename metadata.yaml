@@ -1,7 +1,7 @@
 name: astrbot_plugin_minecraft_monitor_plus
 display_name: Minecraft服务器监控插件Plus
 desc: Minecraft服务器监控插件，支持为每个群独立配置服务器监控。通过WebUI管理每群配置，定时检测服务器状态变化并通过机器人发送通知。
-version: "1.0.1"
+version: "1.0.3"
 author: shenbimicro233
 repo: https://github.com/shenbimicro233/astrbot_plugin_apimcmc
 support_platforms: ["aiocqhttp"]
