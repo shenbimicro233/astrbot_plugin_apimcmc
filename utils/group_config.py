@@ -28,6 +28,7 @@ DEFAULT_GROUP_CONFIG = {
     "api_source": "",
     "mcmotdapi_host": "",
     "mcmotdapi_ssl": None,
+    "simple_mode": None,
 }
 
 
@@ -53,6 +54,8 @@ class GroupConfig:
         self.mcmotdapi_host: str = str(data.get("mcmotdapi_host", "") or "")
         raw_ssl = data.get("mcmotdapi_ssl")
         self.mcmotdapi_ssl: bool | None = None if raw_ssl is None else bool(raw_ssl)
+        raw_simple = data.get("simple_mode")
+        self.simple_mode: bool | None = None if raw_simple is None else bool(raw_simple)
         self.created_at: str = str(data.get("created_at", ""))
 
     def to_dict(self) -> dict:
@@ -68,6 +71,7 @@ class GroupConfig:
             "api_source": self.api_source,
             "mcmotdapi_host": self.mcmotdapi_host,
             "mcmotdapi_ssl": self.mcmotdapi_ssl,
+            "simple_mode": self.simple_mode,
             "created_at": self.created_at,
         }
 

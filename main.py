@@ -20,7 +20,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 from .mcserver import create_mc_client
-from .mcserver.formatter import format_server_info
+from .mcserver.formatter import format_server_info, format_server_info_simple
 from .monitor.run_log import RunLogBuffer
 from .monitor.service import MonitorConfig, MonitorService
 from .utils import build_group_session
@@ -52,6 +52,7 @@ class MyPlugin(Star):
         self.api_source = self.config.get("api_source", "mcstatus")
         self.mcmotdapi_host = self.config.get("mcmotdapi_host", "motd.minebbs.com")
         self.mcmotdapi_ssl = self.config.get("mcmotdapi_ssl", True)
+        self.simple_mode = self.config.get("simple_mode", False)
 
         self._run_logs = RunLogBuffer()
         self.config_mgr = ConfigManager()
@@ -63,6 +64,7 @@ class MyPlugin(Star):
                 api_source=self.api_source,
                 mcmotdapi_host=self.mcmotdapi_host,
                 mcmotdapi_ssl=self.mcmotdapi_ssl,
+                simple_mode=self.simple_mode,
             ),
         )
         self.monitor.set_run_log(self._run_log, buffer_only=self._run_log_buffer_only)
@@ -189,7 +191,12 @@ class MyPlugin(Star):
                 yield event.plain_result("❌ 获取服务器信息失败，请检查 IP/端口/服务器类型")
                 return
 
-            result = format_server_info(server_data, cfg.server_type)
+            # 根据简化模式选择格式
+            effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+            if effective_simple:
+                result = format_server_info_simple(server_data, cfg.server_type)
+            else:
+                result = format_server_info(server_data, cfg.server_type)
 
             # 显示使用的 API 源
             effective_source = cfg.api_source if cfg.api_source else self.api_source

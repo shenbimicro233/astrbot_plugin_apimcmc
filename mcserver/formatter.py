@@ -112,3 +112,33 @@ def format_server_info(server_data: dict, server_type: str = "bedrock") -> str:
     message += f"\n🕒 更新时间: {update_time}"
 
     return message
+
+
+def format_server_info_simple(server_data: dict, server_type: str = "bedrock") -> str:
+    """将服务器数据格式化为精简单行摘要，避免刷屏。"""
+    if server_data is None:
+        return "❌ 获取服务器数据失败"
+
+    status = server_data.get("status", "offline")
+    if status != "online":
+        name = server_data.get("name", "未知服务器")
+        return f"🔴 {name} | 服务器已离线"
+
+    status_emoji = "🟢"
+    name = server_data.get("name", "未知服务器")
+
+    # 当前版本
+    version = server_data.get("version", "?")
+    if version == "未知版本":
+        version = "?"
+
+    # 在线/最大玩家数
+    online = server_data.get("online", 0)
+    max_players = server_data.get("max", 0)
+
+    type_label = "基岩版" if server_type == "bedrock" else "Java版"
+
+    return (
+        f"{status_emoji} {name} | 🎮 {version} | "
+        f"👥 {online}/{max_players} | {type_label}"
+    )

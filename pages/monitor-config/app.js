@@ -102,7 +102,7 @@ function updateStats() {
   const en = vals.filter(c => c.enabled !== false).length;
   const ja = vals.filter(c => c.server_type === 'java').length;
   const be = vals.filter(c => c.server_type !== 'java').length;
-  const st = n => { const el = $(n); if (el) el.textContent = arguments[1]; };
+  const st = (id, val) => { const el = $(id); if (el) el.textContent = val; };
   st('statTotal', vals.length);
   st('statEnabled', en);
   st('statJava', ja);
@@ -158,6 +158,7 @@ function renderCards() {
           <div class="row"><span class="k">服务器地址</span><span class="v">${escHtml(cfg.server_ip)}:${escHtml(String(cfg.server_port))}</span></div>
           <div class="row"><span class="k">服务器类型</span><span class="badge ${isJava ? 'badge-java' : 'badge-bedrock'}">${isJava ? 'Java' : 'Bedrock'}</span></div>
           <div class="row"><span class="k">API 源</span><span class="v">${cfg.api_source ? (cfg.api_source === 'mcstatus' ? 'mcstatus.io' : 'mcmotdapi' + (cfg.mcmotdapi_host ? ' (' + escHtml(cfg.mcmotdapi_host) + ')' : '')) : '全局默认'}</span></div>
+          <div class="row"><span class="k">消息格式</span><span class="v">${cfg.simple_mode === true ? '简化' : (cfg.simple_mode === false ? '完整' : '全局默认')}</span></div>
           <div class="row"><span class="k">附加一言</span><span class="v">${cfg.use_hitokoto !== false ? '开启' : '关闭'}</span></div>
           <div class="row"><span class="k">群号</span><span class="v" style="font-family:monospace;">${escHtml(gid)}</span></div>
         </div>
@@ -214,7 +215,7 @@ function openAddModal() {
   editingGid = null;
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
-  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
+  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
@@ -242,6 +243,8 @@ function setFormValues(v) {
   if (f_en) f_en.checked = v.enabled !== false;
   const f_h = $('f_hitokoto');
   if (f_h) f_h.checked = v.hitokoto !== false;
+  const f_simple = $('f_simple_mode');
+  if (f_simple) f_simple.checked = v.simple_mode === true;
   const f_ssl = $('f_mcmotdapi_ssl');
   if (f_ssl) f_ssl.checked = v.mcmotdapi_ssl !== false;
   const f_as = $('f_api_source');
@@ -258,6 +261,7 @@ window.editConfig = async function (gid) {
     group_id: gid, name: cfg.name || '', ip: cfg.server_ip || '',
     port: String(cfg.server_port || ''), type: cfg.server_type || 'bedrock',
     enabled: cfg.enabled !== false, hitokoto: cfg.use_hitokoto !== false,
+    simple_mode: cfg.simple_mode === true,
     api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
     mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
   });
@@ -320,6 +324,7 @@ if (configForm) {
       server_type: $('f_type').value,
       enabled: $('f_enabled').checked,
       use_hitokoto: $('f_hitokoto').checked,
+      simple_mode: $('f_simple_mode').checked,
       api_source: $('f_api_source').value,
       mcmotdapi_host: $('f_mcmotdapi_host').value,
       mcmotdapi_ssl: $('f_mcmotdapi_ssl').checked,

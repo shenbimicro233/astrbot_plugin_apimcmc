@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
@@ -13,7 +14,7 @@ from typing import Callable
 from astrbot.api.star import Context
 
 from ..mcserver import create_mc_client
-from ..mcserver.formatter import format_server_info
+from ..mcserver.formatter import format_server_info, format_server_info_simple
 from ..utils import GroupTarget, build_group_session, send_to_group
 from ..utils.group_config import ConfigManager, GroupConfig
 from ..utils.hitokoto import get_hitokoto
@@ -30,6 +31,7 @@ class MonitorConfig:
     api_source: str = "mcstatus"
     mcmotdapi_host: str = "motd.minebbs.com"
     mcmotdapi_ssl: bool = True
+    simple_mode: bool = False
 
 
 class MonitorService:
@@ -50,6 +52,7 @@ class MonitorService:
         self.api_source = cfg.api_source
         self.mcmotdapi_host = cfg.mcmotdapi_host
         self.mcmotdapi_ssl = cfg.mcmotdapi_ssl
+        self.simple_mode = cfg.simple_mode
         self._run_log_fn = run_log
 
         self.task: asyncio.Task | None = None
@@ -72,12 +75,11 @@ class MonitorService:
             self._run_log_fn(level, msg, group_id)
 
     def _log_buffer_only(self, level: str, msg: str, group_id: str | None = None) -> None:
-        """send_to_group 已打 logger 时，仅写入缓冲。"""
-        # 插件层 run_log 若同时写 logger+缓冲，这里需要 buffer-only 通道。
-        # 由 main 注入的 buffer_only 回调处理；若只有统一回调则退化为 _log。
-        fn = getattr(self, "_run_log_buffer_only", None) or self._run_log_fn
-        if fn:
-            fn(level, msg, group_id)
+        """send_to_group 已打 logger 时，仅写入缓冲。
+        由 main 注入的 buffer_only 回调处理。
+        """
+        if self._run_log_buffer_only:
+            self._run_log_buffer_only(level, msg, group_id)
 
     def set_run_log(
         self,
@@ -93,7 +95,30 @@ class MonitorService:
             return f"mcmotdapi({host or 'motd.minebbs.com'})"
         return "mcstatus.io"
 
+    @staticmethod
+    def _resolve_effective_cfg(
+        cfg: GroupConfig,
+        default_source: str,
+        default_host: str,
+        default_ssl: bool | None,
+    ) -> tuple[str, str, bool | None]:
+        """合并 per-group 配置与全局默认值。
+
+        Returns:
+            (effective_source, effective_host, effective_ssl)
+        """
+        source = cfg.api_source if cfg.api_source else default_source
+        host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else default_host
+        ssl = default_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
+        return source, host, ssl
+
     # ── 运行时状态 ──
+
+    async def _pop_client(self, group_id: str) -> None:
+        """关闭并移除指定群的 client。"""
+        client = self._group_clients.pop(group_id, None)
+        if client:
+            await client.close()
 
     def rebuild_all_group_state(self) -> None:
         configured = set(self.config_mgr.get_all().keys())
@@ -107,20 +132,20 @@ class MonitorService:
             if gid not in self._group_trackers:
                 self._group_trackers[gid] = ChangeTracker()
 
-    def rebuild_single_group_state(self, group_id: str) -> None:
+    async def rebuild_single_group_state(self, group_id: str) -> None:
+        await self._pop_client(group_id)
         cfg = self.config_mgr.get(group_id)
         if cfg and cfg.enabled and cfg.is_valid():
             self._set_client(group_id, cfg)
             if group_id not in self._group_trackers:
                 self._group_trackers[group_id] = ChangeTracker()
         else:
-            self._group_clients.pop(group_id, None)
             self._group_trackers.pop(group_id, None)
 
     def _set_client(self, group_id: str, cfg: GroupConfig) -> None:
-        effective_source = cfg.api_source if cfg.api_source else self.api_source
-        effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
-        effective_ssl = self.mcmotdapi_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
+        effective_source, effective_host, effective_ssl = self._resolve_effective_cfg(
+            cfg, self.api_source, self.mcmotdapi_host, self.mcmotdapi_ssl,
+        )
         source_display = self._fmt_api_source(effective_source, effective_host)
         self._log("INFO", f"群 {group_id} 已初始化客户端 | API: {source_display}", group_id)
         self._group_clients[group_id] = create_mc_client(
@@ -217,15 +242,14 @@ class MonitorService:
             f"当前启用群数: {len(self.config_mgr.get_enabled_groups())}",
         )
         while not self._stopped:
-            await asyncio.sleep(self.check_interval)
-            if self._stopped:
-                break
+            loop_start = time.monotonic()
 
             enabled = self.config_mgr.get_enabled_groups()
             if not enabled:
                 self._log("INFO", "本轮监控：无已启用的群配置，跳过")
                 self.last_check_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.last_round_summary = "无已启用的群配置"
+                await self._sleep_with_stop_check(loop_start)
                 continue
 
             gids = list(enabled.keys())
@@ -253,7 +277,16 @@ class MonitorService:
             self.last_round_summary = summary
             self._log("INFO", f"本轮监控结束 | {summary}")
 
+            await self._sleep_with_stop_check(loop_start)
+
         self._log("INFO", "监控循环已退出")
+
+    async def _sleep_with_stop_check(self, loop_start: float) -> None:
+        """补偿本轮检测耗时后睡眠，避免时间漂移积累。中途被停止则提前退出。"""
+        elapsed = time.monotonic() - loop_start
+        sleep_time = max(0, self.check_interval - elapsed)
+        if sleep_time > 0 and not self._stopped:
+            await asyncio.sleep(sleep_time)
 
     async def check_one_group(self, group_id: str) -> str:
         """检查单个群。返回: ok / changed / failed / skipped。"""
@@ -267,8 +300,9 @@ class MonitorService:
             cfg = self.config_mgr.get(group_id)
             target = f"{cfg.server_ip}:{cfg.server_port}" if cfg else "?"
             name = cfg.name if cfg else ""
-            effective_source = cfg.api_source if cfg.api_source else self.api_source
-            effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
+            effective_source, effective_host, _ = self._resolve_effective_cfg(
+                cfg, self.api_source, self.mcmotdapi_host, self.mcmotdapi_ssl,
+            )
             source_display = self._fmt_api_source(effective_source, effective_host)
             self._log(
                 "INFO",
@@ -294,8 +328,16 @@ class MonitorService:
             )
 
             server_type = cfg.server_type if cfg else "bedrock"
-            full_status = format_server_info(server_data, server_type)
-            final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
+
+            # 根据简化模式选择消息格式
+            effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+            if effective_simple:
+                status_line = format_server_info_simple(server_data, server_type)
+                final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
+            else:
+                full_status = format_server_info(server_data, server_type)
+                final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
+
             if cfg and cfg.use_hitokoto:
                 hitokoto = await get_hitokoto()
                 if hitokoto:

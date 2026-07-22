@@ -12,6 +12,8 @@ from typing import Optional
 
 import aiohttp
 
+from .base_client import BaseMcClient
+
 
 _MCMOTDAPI_SERVER_TYPE_MAP = {
     "java": "je",
@@ -19,7 +21,7 @@ _MCMOTDAPI_SERVER_TYPE_MAP = {
 }
 
 
-class McMotdApiClient:
+class McMotdApiClient(BaseMcClient):
     """Minecraft 服务器查询客户端 — mcmotdapi 源。"""
 
     def __init__(
@@ -31,51 +33,9 @@ class McMotdApiClient:
         api_host: str = "motd.minebbs.com",
         use_ssl: bool = True,
     ):
-        """初始化客户端。
-
-        Args:
-            server_ip: 服务器 IP 或域名。
-            server_port: 服务器端口。
-            server_type: 服务器类型，"java" 或 "bedrock"。
-            server_name: 显示用服务器名称。
-            api_host: mcmotdapi 服务地址（含端口）。
-            use_ssl: 是否使用 HTTPS。
-        """
-        self.server_ip = server_ip
-        self.server_port = server_port
-        self.server_type = server_type
-        self.server_name = server_name
+        super().__init__(server_ip, server_port, server_type, server_name)
         self.api_host = api_host
         self.use_ssl = use_ssl
-        self._session: aiohttp.ClientSession | None = None
-        self._headers = {"User-Agent": "MinecraftServerMonitor/1.0 (AstrBot Plugin)"}
-        self._timeout = aiohttp.ClientTimeout(total=10)
-
-    async def __aenter__(self) -> McMotdApiClient:
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.close()
-
-    def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                headers=self._headers,
-                timeout=self._timeout,
-            )
-        return self._session
-
-    async def close(self) -> None:
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
-
-    async def get_server_info(self) -> Optional[dict]:
-        """获取并解析服务器信息，返回结构化字典，失败时返回 None。"""
-        data = await self._fetch_raw_data()
-        if data is None:
-            return None
-        return self._parse_raw_data(data)
 
     async def _fetch_raw_data(self) -> Optional[dict]:
         """调用 mcmotdapi，返回原始 JSON 数据。"""

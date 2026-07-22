@@ -96,13 +96,14 @@ class WebApiHandler:
                 "api_source": str(body.get("api_source", "")).strip(),
                 "mcmotdapi_host": str(body.get("mcmotdapi_host", "")).strip(),
                 "mcmotdapi_ssl": body.get("mcmotdapi_ssl"),
+                "simple_mode": body.get("simple_mode"),
             }
             if not data["group_id"] or not data["server_ip"]:
                 return json_response({"ok": False, "error": "缺少必填字段"})
 
             is_new = data["group_id"] not in self.config_mgr.get_all()
             cfg = self.config_mgr.save_group(data)
-            self.monitor.rebuild_single_group_state(cfg.group_id)
+            await self.monitor.rebuild_single_group_state(cfg.group_id)
             self._run_log(
                 "INFO",
                 f"WebUI: 已{'添加' if is_new else '更新'}群 {cfg.group_id} 的配置",
@@ -121,7 +122,7 @@ class WebApiHandler:
                 return json_response({"ok": False, "error": "缺少 group_id"})
 
             ok = self.config_mgr.delete_group(group_id)
-            self.monitor.rebuild_single_group_state(group_id)
+            await self.monitor.rebuild_single_group_state(group_id)
             self.monitor.pop_group_session(group_id)
             if ok:
                 self._run_log("INFO", f"WebUI: 已删除群 {group_id} 的配置", group_id)

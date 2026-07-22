@@ -31,50 +31,12 @@ class GroupTarget:
 
 
 def resolve_platform_id(context: Context) -> str:
-    """解析 aiocqhttp 平台实例的真实 ID（可能是 default / napcat 等）。"""
-    pm = getattr(context, "platform_manager", None)
-    if pm is None:
-        return "aiocqhttp"
+    """返回当前平台 ID。
 
-    insts = getattr(pm, "platform_insts", None) or []
-    if not insts and hasattr(pm, "get_insts"):
-        insts = pm.get_insts() or []
-
-    pid = _first_matching_platform_id(insts, name="aiocqhttp")
-    if pid:
-        return pid
-
-    pid = _first_matching_platform_id(insts)
-    if pid:
-        return pid
-
+    插件声明仅支持 aiocqhttp 平台，且 session 已通过命令触发时的
+    unified_msg_origin 缓存到 _group_sessions 中，此函数仅作为兜底返回默认值。
+    """
     return "aiocqhttp"
-
-
-def _safe_meta_id(platform) -> str:
-    """安全地获取平台实例的 meta id，失败返回空字符串。"""
-    try:
-        meta = platform.meta()
-    except Exception:
-        return ""
-    return str(getattr(meta, "id", "") or "")
-
-
-def _first_matching_platform_id(platforms, name: str | None = None) -> str:
-    """从平台列表中查找第一个匹配 name（不区分大小写）的平台 ID；name 为 None 时返回第一个有效 ID。"""
-    for platform in platforms:
-        try:
-            meta = platform.meta()
-        except Exception:
-            continue
-        meta_name = getattr(meta, "name", "") or ""
-        meta_id = getattr(meta, "id", "") or ""
-        if name is None:
-            if meta_id:
-                return str(meta_id)
-        elif meta_name == name and meta_id:
-            return str(meta_id)
-    return ""
 
 
 def build_group_session(
