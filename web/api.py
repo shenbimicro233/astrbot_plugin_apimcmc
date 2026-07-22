@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 from astrbot.api.web import json_response, request
@@ -18,13 +19,20 @@ from ..utils.group_config import DEFAULT_GROUP_CONFIG, ConfigManager
 RunLogFn = Callable[[str, str, str | None], None]
 
 
+@dataclass
+class WebApiConfig:
+    """Web API 处理器配置。"""
+
+    plugin_name: str
+    check_interval: int = 10
+
+
 class WebApiHandler:
     """封装 Minecraft 监控插件的 Web API 处理器。"""
 
     def __init__(
         self,
-        plugin_name: str,
-        check_interval: int,
+        config: WebApiConfig,
         config_mgr: ConfigManager,
         monitor: MonitorService,
         run_logs: RunLogBuffer,
@@ -33,15 +41,14 @@ class WebApiHandler:
         """初始化 Web API 处理器。
 
         Args:
-            plugin_name: 插件英文标识，用于生成路由前缀。
-            check_interval: 监控检查间隔（秒）。
+            config: Web API 配置（插件标识、检查间隔）。
             config_mgr: 群配置管理器。
             monitor: 监控服务实例。
             run_logs: WebUI 运行日志缓冲区。
             run_log: 同时写缓冲区和 AstrBot logger 的日志函数。
         """
-        self.plugin_name = plugin_name
-        self.check_interval = check_interval
+        self.plugin_name = config.plugin_name
+        self.check_interval = config.check_interval
         self.config_mgr = config_mgr
         self.monitor = monitor
         self.run_logs = run_logs
@@ -63,7 +70,10 @@ class WebApiHandler:
 
     async def api_get_configs(self):
         """获取所有群的独立配置。"""
-        return json_response(self.config_mgr.get_all())
+        try:
+            return json_response(self.config_mgr.get_all())
+        except Exception as e:
+            return json_response({"ok": False, "error": str(e)})
 
     async def api_save_config(self):
         """新增或更新一个群的配置。"""
@@ -83,6 +93,9 @@ class WebApiHandler:
                 "use_hitokoto": bool(
                     body.get("use_hitokoto", DEFAULT_GROUP_CONFIG["use_hitokoto"])
                 ),
+                "api_source": str(body.get("api_source", "")).strip(),
+                "mcmotdapi_host": str(body.get("mcmotdapi_host", "")).strip(),
+                "mcmotdapi_ssl": body.get("mcmotdapi_ssl"),
             }
             if not data["group_id"] or not data["server_ip"]:
                 return json_response({"ok": False, "error": "缺少必填字段"})
@@ -101,17 +114,20 @@ class WebApiHandler:
 
     async def api_delete_config(self):
         """删除指定群的配置。"""
-        body = await request.json(default={})
-        group_id = str(body.get("group_id", "")).strip()
-        if not group_id:
-            return json_response({"ok": False, "error": "缺少 group_id"})
+        try:
+            body = await request.json(default={})
+            group_id = str(body.get("group_id", "")).strip()
+            if not group_id:
+                return json_response({"ok": False, "error": "缺少 group_id"})
 
-        ok = self.config_mgr.delete_group(group_id)
-        self.monitor.rebuild_single_group_state(group_id)
-        self.monitor.pop_group_session(group_id)
-        if ok:
-            self._run_log("INFO", f"WebUI: 已删除群 {group_id} 的配置", group_id)
-        return json_response({"ok": ok})
+            ok = self.config_mgr.delete_group(group_id)
+            self.monitor.rebuild_single_group_state(group_id)
+            self.monitor.pop_group_session(group_id)
+            if ok:
+                self._run_log("INFO", f"WebUI: 已删除群 {group_id} 的配置", group_id)
+            return json_response({"ok": ok})
+        except Exception as e:
+            return json_response({"ok": False, "error": str(e)})
 
     async def api_get_stats(self):
         """获取运行时状态。"""
@@ -149,6 +165,9 @@ class WebApiHandler:
 
     async def api_clear_logs(self):
         """清空监控运行日志。"""
-        self.run_logs.clear()
-        self._run_log("INFO", "WebUI: 运行日志已清空")
-        return json_response({"ok": True})
+        try:
+            self.run_logs.clear()
+            self._run_log("INFO", "WebUI: 运行日志已清空")
+            return json_response({"ok": True})
+        except Exception as e:
+            return json_response({"ok": False, "error": str(e)})

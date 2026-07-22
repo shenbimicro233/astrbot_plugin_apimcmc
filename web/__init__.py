@@ -6,6 +6,6 @@
 
 from __future__ import annotations
 
-from .api import WebApiHandler
+from .api import WebApiConfig, WebApiHandler
 
-__all__ = ["WebApiHandler"]
+__all__ = ["WebApiConfig", "WebApiHandler"]

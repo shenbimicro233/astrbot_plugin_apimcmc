@@ -13,8 +13,8 @@ from typing import Optional
 import aiohttp
 
 
-class McServerClient:
-    """Minecraft 服务器查询客户端。"""
+class McStatusClient:
+    """Minecraft 服务器查询客户端 — mcstatus.io 源。"""
 
     def __init__(
         self,
@@ -39,7 +39,7 @@ class McServerClient:
         self._headers = {"User-Agent": "MinecraftServerMonitor/1.0 (AstrBot Plugin)"}
         self._timeout = aiohttp.ClientTimeout(total=10)
 
-    async def __aenter__(self) -> McServerClient:
+    async def __aenter__(self) -> McStatusClient:
         """支持 async with 语法，自动管理 session 生命周期。"""
         return self
 

@@ -25,6 +25,9 @@ DEFAULT_GROUP_CONFIG = {
     "server_type": "bedrock",
     "enabled": True,
     "use_hitokoto": True,
+    "api_source": "",
+    "mcmotdapi_host": "",
+    "mcmotdapi_ssl": None,
 }
 
 
@@ -46,6 +49,10 @@ class GroupConfig:
         self.use_hitokoto: bool = bool(
             data.get("use_hitokoto", DEFAULT_GROUP_CONFIG["use_hitokoto"])
         )
+        self.api_source: str = str(data.get("api_source", ""))
+        self.mcmotdapi_host: str = str(data.get("mcmotdapi_host", "") or "")
+        raw_ssl = data.get("mcmotdapi_ssl")
+        self.mcmotdapi_ssl: bool | None = None if raw_ssl is None else bool(raw_ssl)
         self.created_at: str = str(data.get("created_at", ""))
 
     def to_dict(self) -> dict:
@@ -58,6 +65,9 @@ class GroupConfig:
             "server_type": self.server_type,
             "enabled": self.enabled,
             "use_hitokoto": self.use_hitokoto,
+            "api_source": self.api_source,
+            "mcmotdapi_host": self.mcmotdapi_host,
+            "mcmotdapi_ssl": self.mcmotdapi_ssl,
             "created_at": self.created_at,
         }
 

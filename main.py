@@ -19,14 +19,14 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
-from .mcserver.client import McServerClient
+from .mcserver import create_mc_client
 from .mcserver.formatter import format_server_info
 from .monitor.run_log import RunLogBuffer
-from .monitor.service import MonitorService
+from .monitor.service import MonitorConfig, MonitorService
 from .utils import build_group_session
 from .utils.group_config import ConfigManager
 from .utils.hitokoto import get_hitokoto
-from .web import WebApiHandler
+from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
 PLUGIN_VERSION = "1.0.0"
@@ -48,18 +48,30 @@ class MyPlugin(Star):
         self.check_interval = self.config.get("check_interval", 10)
         self.enable_auto = self.config.get("enable_auto_monitor", False)
 
+        # API 源配置
+        self.api_source = self.config.get("api_source", "mcstatus")
+        self.mcmotdapi_host = self.config.get("mcmotdapi_host", "motd.minebbs.com")
+        self.mcmotdapi_ssl = self.config.get("mcmotdapi_ssl", True)
+
         self._run_logs = RunLogBuffer()
         self.config_mgr = ConfigManager()
         self.monitor = MonitorService(
             context,
             self.config_mgr,
-            check_interval=self.check_interval,
+            config=MonitorConfig(
+                check_interval=self.check_interval,
+                api_source=self.api_source,
+                mcmotdapi_host=self.mcmotdapi_host,
+                mcmotdapi_ssl=self.mcmotdapi_ssl,
+            ),
         )
         self.monitor.set_run_log(self._run_log, buffer_only=self._run_log_buffer_only)
 
         self._web_api = WebApiHandler(
-            plugin_name=PLUGIN_NAME,
-            check_interval=self.check_interval,
+            config=WebApiConfig(
+                plugin_name=PLUGIN_NAME,
+                check_interval=self.check_interval,
+            ),
             config_mgr=self.config_mgr,
             monitor=self.monitor,
             run_logs=self._run_logs,
@@ -160,11 +172,17 @@ class MyPlugin(Star):
             return
 
         try:
-            async with McServerClient(
+            effective_source = cfg.api_source if cfg.api_source else self.api_source
+            effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
+            effective_ssl = self.mcmotdapi_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
+            async with create_mc_client(
+                api_source=effective_source,
                 server_ip=cfg.server_ip,
                 server_port=cfg.server_port,
                 server_type=cfg.server_type,
                 server_name=cfg.name,
+                mcmotdapi_host=effective_host,
+                mcmotdapi_ssl=effective_ssl,
             ) as client:
                 server_data = await client.get_server_info()
             if server_data is None:
@@ -172,6 +190,15 @@ class MyPlugin(Star):
                 return
 
             result = format_server_info(server_data, cfg.server_type)
+
+            # 显示使用的 API 源
+            effective_source = cfg.api_source if cfg.api_source else self.api_source
+            effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
+            if effective_source == "mcmotdapi":
+                source_tag = f"mcmotdapi({effective_host or 'motd.minebbs.com'})"
+            else:
+                source_tag = "mcstatus.io"
+            result = f"🔍 API: {source_tag}\n\n{result}"
 
             if cfg.use_hitokoto:
                 hitokoto = await get_hitokoto()

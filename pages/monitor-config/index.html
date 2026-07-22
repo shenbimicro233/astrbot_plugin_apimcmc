@@ -417,6 +417,14 @@
             <option value="java">Java 版</option>
           </select>
         </div>
+        <div class="form-group">
+          <label for="f_api_source">API 查询源</label>
+          <select id="f_api_source">
+            <option value="">全局默认</option>
+            <option value="mcstatus">mcstatus.io</option>
+            <option value="mcmotdapi">mcmotdapi</option>
+          </select>
+        </div>
         <div class="form-group" style="justify-content:flex-end;display:flex;flex-direction:column;">
           <div class="form-checkbox">
             <input id="f_enabled" type="checkbox" checked>
@@ -425,6 +433,19 @@
           <div class="form-checkbox" style="margin-top:8px;">
             <input id="f_hitokoto" type="checkbox" checked>
             <label for="f_hitokoto">附加一言</label>
+          </div>
+        </div>
+      </div>
+      <div id="mcmotdapi_config_group" class="form-row" style="display:none;margin-top:8px;padding:10px;background:#f5f5f5;border-radius:6px;">
+        <div class="form-group" style="flex:2;">
+          <label for="f_mcmotdapi_host">mcmotdapi 服务地址</label>
+          <input id="f_mcmotdapi_host" type="text" placeholder="motd.minebbs.com" value="">
+          <span style="font-size:12px;color:#888;">留空则使用全局配置</span>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;display:flex;flex-direction:column;">
+          <div class="form-checkbox">
+            <input id="f_mcmotdapi_ssl" type="checkbox" checked>
+            <label for="f_mcmotdapi_ssl">启用 HTTPS</label>
           </div>
         </div>
       </div>

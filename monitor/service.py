@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
 from astrbot.api.star import Context
 
-from ..mcserver.client import McServerClient
+from ..mcserver import create_mc_client
 from ..mcserver.formatter import format_server_info
 from ..utils import GroupTarget, build_group_session, send_to_group
 from ..utils.group_config import ConfigManager, GroupConfig
@@ -19,6 +20,16 @@ from ..utils.hitokoto import get_hitokoto
 from .tracker import ChangeTracker
 
 RunLogFn = Callable[[str, str, str | None], None]
+
+
+@dataclass
+class MonitorConfig:
+    """监控服务配置。"""
+
+    check_interval: int = 10
+    api_source: str = "mcstatus"
+    mcmotdapi_host: str = "motd.minebbs.com"
+    mcmotdapi_ssl: bool = True
 
 
 class MonitorService:
@@ -29,19 +40,23 @@ class MonitorService:
         context: Context,
         config_mgr: ConfigManager,
         *,
-        check_interval: int = 10,
+        config: MonitorConfig | None = None,
         run_log: RunLogFn | None = None,
     ):
         self.context = context
         self.config_mgr = config_mgr
-        self.check_interval = int(check_interval) if check_interval else 10
+        cfg = config or MonitorConfig()
+        self.check_interval = int(cfg.check_interval) if cfg.check_interval else 10
+        self.api_source = cfg.api_source
+        self.mcmotdapi_host = cfg.mcmotdapi_host
+        self.mcmotdapi_ssl = cfg.mcmotdapi_ssl
         self._run_log_fn = run_log
 
         self.task: asyncio.Task | None = None
         self._auto_start_task: asyncio.Task | None = None
         self._stopped = False
 
-        self._group_clients: dict[str, McServerClient] = {}
+        self._group_clients: dict = {}
         self._group_trackers: dict[str, ChangeTracker] = {}
         self._group_sessions: dict[str, str] = {}
 
@@ -72,6 +87,12 @@ class MonitorService:
         self._run_log_fn = run_log
         self._run_log_buffer_only = buffer_only
 
+    @staticmethod
+    def _fmt_api_source(source: str, host: str = "") -> str:
+        if source == "mcmotdapi":
+            return f"mcmotdapi({host or 'motd.minebbs.com'})"
+        return "mcstatus.io"
+
     # ── 运行时状态 ──
 
     def rebuild_all_group_state(self) -> None:
@@ -97,11 +118,19 @@ class MonitorService:
             self._group_trackers.pop(group_id, None)
 
     def _set_client(self, group_id: str, cfg: GroupConfig) -> None:
-        self._group_clients[group_id] = McServerClient(
+        effective_source = cfg.api_source if cfg.api_source else self.api_source
+        effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
+        effective_ssl = self.mcmotdapi_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
+        source_display = self._fmt_api_source(effective_source, effective_host)
+        self._log("INFO", f"群 {group_id} 已初始化客户端 | API: {source_display}", group_id)
+        self._group_clients[group_id] = create_mc_client(
+            api_source=effective_source,
             server_ip=cfg.server_ip,
             server_port=cfg.server_port,
             server_type=cfg.server_type,
             server_name=cfg.name,
+            mcmotdapi_host=effective_host,
+            mcmotdapi_ssl=effective_ssl,
         )
 
     def cache_group_session(self, group_id: str | None, umo: str | None) -> str | None:
@@ -238,7 +267,14 @@ class MonitorService:
             cfg = self.config_mgr.get(group_id)
             target = f"{cfg.server_ip}:{cfg.server_port}" if cfg else "?"
             name = cfg.name if cfg else ""
-            self._log("INFO", f"正在检查群 {group_id} | {name} ({target})", group_id)
+            effective_source = cfg.api_source if cfg.api_source else self.api_source
+            effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
+            source_display = self._fmt_api_source(effective_source, effective_host)
+            self._log(
+                "INFO",
+                f"正在检查群 {group_id} | {name} ({target}) | API: {source_display}",
+                group_id,
+            )
 
             server_data = await client.get_server_info()
             if server_data is None:

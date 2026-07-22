@@ -10,5 +10,24 @@
     "type": "bool",
     "hint": "插件加载时是否自动开始监控所有已启用群组的服务器",
     "default": false
+  },
+  "api_source": {
+    "description": "API查询源",
+    "type": "string",
+    "hint": "选择服务器状态查询API源",
+    "default": "mcstatus",
+    "options": ["mcstatus", "mcmotdapi"]
+  },
+  "mcmotdapi_host": {
+    "description": "mcmotdapi 服务地址",
+    "type": "string",
+    "hint": "仅当 API查询源 为 mcmotdapi 时生效。默认公共实例 motd.minebbs.com",
+    "default": "motd.minebbs.com"
+  },
+  "mcmotdapi_ssl": {
+    "description": "mcmotdapi 启用 HTTPS",
+    "type": "bool",
+    "hint": "仅当 API查询源 为 mcmotdapi 时生效。自部署内网可关闭",
+    "default": true
   }
 }
