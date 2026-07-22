@@ -214,7 +214,7 @@ function openAddModal() {
   editingGid = null;
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
-  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true }, false);
+  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
@@ -225,7 +225,7 @@ function openAddModal() {
 const addBtn = $('addBtn');
 if (addBtn) addBtn.addEventListener('click', openAddModal);
 
-function setFormValues(v, disabled) {
+function setFormValues(v) {
   const fields = [
     ['f_group_id', v.group_id],
     ['f_name', v.name],
@@ -236,7 +236,7 @@ function setFormValues(v, disabled) {
   ];
   fields.forEach(([id, val]) => {
     const el = $(id);
-    if (el) { el.value = String(val || ''); if (disabled !== undefined) el.disabled = disabled; }
+    if (el) { el.value = String(val || ''); el.disabled = false; }
   });
   const f_en = $('f_enabled');
   if (f_en) f_en.checked = v.enabled !== false;
@@ -260,7 +260,10 @@ window.editConfig = async function (gid) {
     enabled: cfg.enabled !== false, hitokoto: cfg.use_hitokoto !== false,
     api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
     mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
-  }, true);
+  });
+  // 编辑时锁定群号，不可修改
+  const fg = $('f_group_id');
+  if (fg) fg.disabled = true;
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
