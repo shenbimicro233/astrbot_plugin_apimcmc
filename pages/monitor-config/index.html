@@ -479,6 +479,82 @@
   <span id="toastText">提示</span>
 </div>
 
+<!-- =============== 模板：加载骨架 =============== -->
+<template id="skeleton-template">
+  <div class="card skeleton-card">
+    <div class="card-header">
+      <div><div class="skeleton" style="height:16px;width:140px;margin-bottom:6px;"></div><div class="skeleton" style="height:12px;width:80px;"></div></div>
+      <div class="skeleton" style="height:22px;width:52px;border-radius:12px;"></div>
+    </div>
+    <div class="card-body">
+      <div class="row"><div class="skeleton" style="height:14px;width:60px;"></div><div class="skeleton" style="height:14px;width:100px;"></div></div>
+      <div class="row"><div class="skeleton" style="height:14px;width:60px;"></div><div class="skeleton" style="height:14px;width:70px;"></div></div>
+      <div class="row"><div class="skeleton" style="height:14px;width:60px;"></div><div class="skeleton" style="height:14px;width:90px;"></div></div>
+    </div>
+    <div class="card-footer">
+      <div class="skeleton" style="height:28px;width:56px;border-radius:8px;"></div>
+      <div class="skeleton" style="height:28px;width:56px;border-radius:8px;"></div>
+    </div>
+  </div>
+</template>
+
+<!-- =============== 模板：配置卡片 =============== -->
+<template id="card-template">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title" data-field="name"></div>
+        <div class="card-sub" data-field="group-sub"></div>
+      </div>
+      <span class="badge" data-field="status-badge"></span>
+    </div>
+    <div class="card-body">
+      <div class="row"><span class="k">服务器地址</span><span class="v" data-field="address"></span></div>
+      <div class="row"><span class="k">服务器类型</span><span class="badge" data-field="type-badge"></span></div>
+      <div class="row"><span class="k">API 源</span><span class="v" data-field="api-source"></span></div>
+      <div class="row"><span class="k">消息格式</span><span class="v" data-field="msg-format"></span></div>
+      <div class="row"><span class="k">附加一言</span><span class="v" data-field="hitokoto"></span></div>
+      <div class="row"><span class="k">群号</span><span class="v" data-field="group-id"></span></div>
+    </div>
+    <div class="card-footer">
+      <button class="btn btn-secondary btn-sm" data-action="edit">编辑</button>
+      <button class="btn btn-danger btn-sm" data-action="delete">删除</button>
+    </div>
+  </div>
+</template>
+
+<!-- =============== 模板：暂无配置（空状态） =============== -->
+<template id="empty-config-template">
+  <div class="empty-state" style="grid-column: 1 / -1;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="2" y="7" width="20" height="14" rx="2"></rect>
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+    </svg>
+    <h3>暂无配置</h3>
+    <p>点击右上角「添加配置」为 QQ 群设置 Minecraft 服务器监控。</p>
+  </div>
+</template>
+
+<!-- =============== 模板：搜索无匹配 =============== -->
+<template id="empty-match-template">
+  <div class="empty-state" style="grid-column: 1 / -1;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+    <h3>没有匹配的配置</h3>
+    <p>尝试调整搜索关键词或筛选条件。</p>
+  </div>
+</template>
+
+<!-- =============== 模板：日志行 =============== -->
+<template id="log-line-template">
+  <div class="log-line">
+    <span class="ts" data-field="ts"></span>
+    <span class="lv" data-field="level"></span>
+    <span class="msg" data-field="msg"></span>
+  </div>
+</template>
+
 <script type="module" src="./app.js"></script>
 </body>
 </html>

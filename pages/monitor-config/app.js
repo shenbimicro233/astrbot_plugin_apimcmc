@@ -1,3 +1,15 @@
+/**
+ * Minecraft 服务器监控 WebUI
+ *
+ * 优化变更：
+ *   - Store 响应式状态管理，消除分散全局变量
+ *   - <template> 模板标签，HTML 结构移出 JS
+ *   - DocumentFragment 批量日志渲染，减少 DOM reflow
+ *   - 事件委托替代逐个绑定，减少内存开销
+ */
+
+import { Store } from './store.js';
+
 const bridge = window.AstrBotPluginPage;
 if (!bridge || typeof bridge.ready !== 'function') {
   document.body.innerHTML =
@@ -7,24 +19,56 @@ if (!bridge || typeof bridge.ready !== 'function') {
   throw new Error('bridge unavailable');
 }
 
+// ── DOM 快捷引用 ──
 const $ = (id) => document.getElementById(id);
-let editingGid = null;
-let allCfg = {};
-let flt = 'all';
-let q = '';
+const $template = (id) => /** @type {HTMLTemplateElement} */ (document.getElementById(id));
+const $grid = () => $('cardsGrid');
+const $console = () => $('logConsole');
 
+// ── 常量 ──
 const LOG_POLL_MS = 3000;
 const LOG_DOM_MAX = 300;
-let logSinceId = 0;
-let logPollTimer = null;
-let logFollowBtm = true;
-let logLines = [];
-
 const ICONS = {
   success: '<path d="M20 6L9 17l-5-5"></path>',
   error: '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>',
   info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>',
 };
+
+// ── 全局状态 ──
+const state = new Store({
+  editingGid: null,
+  allCfg: {},
+  filter: 'all',
+  searchQuery: '',
+  logSinceId: 0,
+  logFollowBottom: true,
+});
+
+let logPollTimer = null;
+let logLines = [];       // 仅用于计数裁剪，不驱动渲染
+let confirmResolve = null;
+
+// ── 工具函数 ──
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+function normalizeLevel(level) {
+  const lv = String(level || 'INFO').toUpperCase();
+  return lv === 'WARNING' ? 'WARN' : lv;
+}
+
+function isErrorLevel(level) {
+  return ['WARN', 'ERROR'].includes(normalizeLevel(level));
+}
+
+// ── Toast ──
 
 function showToast(msg, type) {
   type = type || 'info';
@@ -40,65 +84,31 @@ function showToast(msg, type) {
   el._hide = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// ── 确认框 ──
+
+function showConfirm(title, text) {
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+    const ct = $('confirmTitle');
+    const cx = $('confirmText');
+    if (ct) ct.textContent = title;
+    if (cx) cx.textContent = text;
+    const co = $('confirmOverlay');
+    if (co) co.classList.add('active');
+  });
 }
 
-function debounce(fn, ms) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+function closeConfirm(result) {
+  const co = $('confirmOverlay');
+  if (co) co.classList.remove('active');
+  if (confirmResolve) confirmResolve(result);
+  confirmResolve = null;
 }
 
-function showSkeleton() {
-  const grid = $('cardsGrid');
-  if (!grid) return;
-  grid.innerHTML = Array.from({ length: 4 }).map(() => `
-    <div class="card skeleton-card">
-      <div class="card-header">
-        <div><div class="skeleton" style="height:16px;width:140px;margin-bottom:6px;"></div><div class="skeleton" style="height:12px;width:80px;"></div></div>
-        <div class="skeleton" style="height:22px;width:52px;border-radius:12px;"></div>
-      </div>
-      <div class="card-body">
-        <div class="row"><div class="skeleton" style="height:14px;width:60px;"></div><div class="skeleton" style="height:14px;width:100px;"></div></div>
-        <div class="row"><div class="skeleton" style="height:14px;width:60px;"></div><div class="skeleton" style="height:14px;width:70px;"></div></div>
-        <div class="row"><div class="skeleton" style="height:14px;width:60px;"></div><div class="skeleton" style="height:14px;width:90px;"></div></div>
-      </div>
-      <div class="card-footer">
-        <div class="skeleton" style="height:28px;width:56px;border-radius:8px;"></div>
-        <div class="skeleton" style="height:28px;width:56px;border-radius:8px;"></div>
-      </div>
-    </div>`).join('');
-}
-
-function showEmptyState() {
-  const grid = $('cardsGrid');
-  if (!grid) return;
-  grid.innerHTML = `
-    <div class="empty-state" style="grid-column: 1 / -1;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="2" y="7" width="20" height="14" rx="2"></rect>
-        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-      </svg>
-      <h3>暂无配置</h3>
-      <p>点击右上角「添加配置」为 QQ 群设置 Minecraft 服务器监控。</p>
-    </div>`;
-}
-
-async function loadTable() {
-  showSkeleton();
-  try {
-    const res = await bridge.apiGet('configs');
-    allCfg = res || {};
-    updateStats();
-    renderCards();
-  } catch (e) {
-    showToast('加载配置失败：' + (e.message || e), 'error');
-    showEmptyState();
-  }
-}
+// ── 统计面板 ──
 
 function updateStats() {
-  const vals = Object.values(allCfg);
+  const vals = Object.values(state.get('allCfg'));
   const en = vals.filter(c => c.enabled !== false).length;
   const ja = vals.filter(c => c.server_type === 'java').length;
   const be = vals.filter(c => c.server_type !== 'java').length;
@@ -107,6 +117,91 @@ function updateStats() {
   st('statEnabled', en);
   st('statJava', ja);
   st('statBedrock', be);
+}
+
+// ── 卡片渲染 ──
+
+function showSkeleton() {
+  const grid = $grid();
+  if (!grid) return;
+  const tpl = $template('skeleton-template');
+  if (!tpl) return;
+  const fragment = document.createDocumentFragment();
+  for (let i = 0; i < 4; i++) {
+    fragment.appendChild(tpl.content.cloneNode(true));
+  }
+  grid.innerHTML = '';
+  grid.appendChild(fragment);
+}
+
+function showEmptyState(templateId) {
+  const grid = $grid();
+  if (!grid) return;
+  const tpl = $template(templateId || 'empty-config-template');
+  if (!tpl) return;
+  grid.innerHTML = '';
+  grid.appendChild(tpl.content.cloneNode(true));
+}
+
+/** 用 card-template 克隆 + 数据填充，替代 innerHTML 拼串。 */
+function createCardElement(gid, cfg) {
+  const tpl = $template('card-template');
+  if (!tpl) return null;
+  const frag = tpl.content.cloneNode(true);
+
+  const bind = (field) => frag.querySelector(`[data-field="${field}"]`);
+  const isJava = cfg.server_type === 'java';
+
+  // 文本绑定
+  const nameEl = bind('name');
+  if (nameEl) nameEl.textContent = cfg.name || '未命名';
+
+  const subEl = bind('group-sub');
+  if (subEl) subEl.textContent = `群号 ${gid}`;
+
+  const badgeEl = bind('status-badge');
+  if (badgeEl) {
+    const enabled = cfg.enabled !== false;
+    badgeEl.textContent = enabled ? '已启用' : '已禁用';
+    badgeEl.className = 'badge ' + (enabled ? 'badge-on' : 'badge-off');
+  }
+
+  const addrEl = bind('address');
+  if (addrEl) addrEl.textContent = `${cfg.server_ip}:${cfg.server_port}`;
+
+  const typeBadge = bind('type-badge');
+  if (typeBadge) {
+    typeBadge.textContent = isJava ? 'Java' : 'Bedrock';
+    typeBadge.className = 'badge ' + (isJava ? 'badge-java' : 'badge-bedrock');
+  }
+
+  const apiEl = bind('api-source');
+  if (apiEl) {
+    apiEl.textContent = cfg.api_source
+      ? (cfg.api_source === 'mcstatus' ? 'mcstatus.io' : 'mcmotdapi' + (cfg.mcmotdapi_host ? ' (' + cfg.mcmotdapi_host + ')' : ''))
+      : '全局默认';
+  }
+
+  const fmtEl = bind('msg-format');
+  if (fmtEl) fmtEl.textContent = cfg.simple_mode === true ? '简化' : (cfg.simple_mode === false ? '完整' : '全局默认');
+
+  const hitoEl = bind('hitokoto');
+  if (hitoEl) hitoEl.textContent = cfg.use_hitokoto !== false ? '开启' : '关闭';
+
+  const gidEl = bind('group-id');
+  if (gidEl) {
+    gidEl.textContent = gid;
+    gidEl.style.fontFamily = 'monospace';
+  }
+
+  // 事件绑定（替代内联 onclick）
+  const editBtn = frag.querySelector('[data-action="edit"]');
+  if (editBtn) editBtn.addEventListener('click', () => editConfig(gid));
+
+  const delBtn = frag.querySelector('[data-action="delete"]');
+  if (delBtn) delBtn.addEventListener('click', () => deleteConfig(gid));
+
+  return frag;
 }
 
 function matchFlt(cfg, f) {
@@ -126,93 +221,78 @@ function matchQ(cfg, gid, query) {
 }
 
 function renderCards() {
-  const grid = $('cardsGrid');
+  const grid = $grid();
   if (!grid) return;
+
+  const allCfg = state.get('allCfg');
+  const flt = state.get('filter');
+  const q = state.get('searchQuery');
   const entries = Object.entries(allCfg).filter(([gid, cfg]) => matchFlt(cfg, flt) && matchQ(cfg, gid, q));
 
-  if (!entries.length && !Object.keys(allCfg).length) { showEmptyState(); return; }
+  // 空状态
+  if (!entries.length && !Object.keys(allCfg).length) {
+    showEmptyState('empty-config-template');
+    return;
+  }
   if (!entries.length) {
-    grid.innerHTML = `
-      <div class="empty-state" style="grid-column: 1 / -1;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        <h3>没有匹配的配置</h3>
-        <p>尝试调整搜索关键词或筛选条件。</p>
-      </div>`;
+    showEmptyState('empty-match-template');
     return;
   }
 
-  grid.innerHTML = entries.map(([gid, cfg]) => {
-    const isJava = cfg.server_type === 'java';
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">${escHtml(cfg.name || '未命名')}</div>
-            <div class="card-sub">群号 ${escHtml(gid)}</div>
-          </div>
-          <span class="badge ${cfg.enabled !== false ? 'badge-on' : 'badge-off'}">${cfg.enabled !== false ? '已启用' : '已禁用'}</span>
-        </div>
-        <div class="card-body">
-          <div class="row"><span class="k">服务器地址</span><span class="v">${escHtml(cfg.server_ip)}:${escHtml(String(cfg.server_port))}</span></div>
-          <div class="row"><span class="k">服务器类型</span><span class="badge ${isJava ? 'badge-java' : 'badge-bedrock'}">${isJava ? 'Java' : 'Bedrock'}</span></div>
-          <div class="row"><span class="k">API 源</span><span class="v">${cfg.api_source ? (cfg.api_source === 'mcstatus' ? 'mcstatus.io' : 'mcmotdapi' + (cfg.mcmotdapi_host ? ' (' + escHtml(cfg.mcmotdapi_host) + ')' : '')) : '全局默认'}</span></div>
-          <div class="row"><span class="k">消息格式</span><span class="v">${cfg.simple_mode === true ? '简化' : (cfg.simple_mode === false ? '完整' : '全局默认')}</span></div>
-          <div class="row"><span class="k">附加一言</span><span class="v">${cfg.use_hitokoto !== false ? '开启' : '关闭'}</span></div>
-          <div class="row"><span class="k">群号</span><span class="v" style="font-family:monospace;">${escHtml(gid)}</span></div>
-        </div>
-        <div class="card-footer">
-          <button class="btn btn-secondary btn-sm" onclick="editConfig('${escHtml(gid)}')">编辑</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteConfig('${escHtml(gid)}')">删除</button>
-        </div>
-      </div>`;
-  }).join('');
+  const fragment = document.createDocumentFragment();
+  for (const [gid, cfg] of entries) {
+    const card = createCardElement(gid, cfg);
+    if (card) fragment.appendChild(card);
+  }
+
+  grid.innerHTML = '';
+  grid.appendChild(fragment);
 }
 
+// ── 筛选 / 搜索 ──
+
 const applyFilter = debounce(() => {
-  q = ($('searchInput').value || '').trim();
+  state.set('searchQuery', ($('searchInput').value || '').trim());
   renderCards();
 }, 200);
 
 function bindFilters() {
   const si = $('searchInput');
   if (si) si.addEventListener('input', applyFilter);
-  document.querySelectorAll('.chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
+
+  // 筛选芯片 — 事件委托
+  const toolbar = document.querySelector('.toolbar');
+  if (toolbar) {
+    toolbar.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
       document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
-      flt = chip.dataset.filter;
+      state.set('filter', chip.dataset.filter);
       renderCards();
     });
-  });
+  }
 }
 
-let confirmResolve = null;
-function showConfirm(title, text) {
-  return new Promise((resolve) => {
-    confirmResolve = resolve;
-    const ct = $('confirmTitle');
-    const cx = $('confirmText');
-    if (ct) ct.textContent = title;
-    if (cx) cx.textContent = text;
-    const co = $('confirmOverlay');
-    if (co) co.classList.add('active');
-  });
+// ── 数据加载 ──
+
+async function loadTable() {
+  showSkeleton();
+  try {
+    const res = await bridge.apiGet('configs');
+    state.set('allCfg', res || {});
+    updateStats();
+    renderCards();
+  } catch (e) {
+    showToast('加载配置失败：' + (e.message || e), 'error');
+    showEmptyState();
+  }
 }
-function closeConfirm(result) {
-  const co = $('confirmOverlay');
-  if (co) co.classList.remove('active');
-  if (confirmResolve) confirmResolve(result);
-  confirmResolve = null;
-}
-const confirmCancel = $('confirmCancel');
-if (confirmCancel) confirmCancel.addEventListener('click', () => closeConfirm(false));
-const confirmOk = $('confirmOk');
-if (confirmOk) confirmOk.addEventListener('click', () => closeConfirm(true));
+
+// ── 编辑 / 新建 ──
 
 function openAddModal() {
-  editingGid = null;
+  state.set('editingGid', null);
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
   setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
@@ -223,8 +303,49 @@ function openAddModal() {
   if (fg) { fg.disabled = false; fg.focus(); }
   setTimeout(toggleMcmotdapiConfig, 0);
 }
-const addBtn = $('addBtn');
-if (addBtn) addBtn.addEventListener('click', openAddModal);
+
+function editConfig(gid) {
+  const cfg = state.get('allCfg')[gid];
+  if (!cfg) return showToast('配置不存在', 'error');
+  state.set('editingGid', gid);
+  const mt = $('modalTitle');
+  if (mt) mt.textContent = '编辑配置 - ' + gid;
+  setFormValues({
+    group_id: gid, name: cfg.name || '', ip: cfg.server_ip || '',
+    port: String(cfg.server_port || ''), type: cfg.server_type || 'bedrock',
+    enabled: cfg.enabled !== false, hitokoto: cfg.use_hitokoto !== false,
+    simple_mode: cfg.simple_mode === true,
+    api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
+    mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
+  });
+  const fg = $('f_group_id');
+  if (fg) fg.disabled = true;
+  clearFormErrors();
+  const mo = $('modalOverlay');
+  if (mo) mo.classList.add('active');
+  setTimeout(toggleMcmotdapiConfig, 0);
+}
+
+function closeModal() {
+  const mo = $('modalOverlay');
+  if (mo) mo.classList.remove('active');
+  state.set('editingGid', null);
+}
+
+function toggleMcmotdapiConfig() {
+  const show = $('f_api_source') && $('f_api_source').value === 'mcmotdapi';
+  const grp = $('mcmotdapi_config_group');
+  if (grp) grp.style.display = show ? '' : 'none';
+}
+
+function clearFormErrors() {
+  ['err_group_id', 'err_ip', 'err_port'].forEach(id => { const el = $(id); if (el) el.classList.remove('show'); });
+}
+
+function setFieldError(id, show) {
+  const el = $(id);
+  if (el) el.classList.toggle('show', show);
+}
 
 function setFormValues(v) {
   const fields = [
@@ -251,57 +372,226 @@ function setFormValues(v) {
   if (f_as) f_as.value = v.api_source || '';
 }
 
-window.editConfig = async function (gid) {
-  const cfg = allCfg[gid];
-  if (!cfg) return showToast('配置不存在', 'error');
-  editingGid = gid;
-  const mt = $('modalTitle');
-  if (mt) mt.textContent = '编辑配置 - ' + gid;
-  setFormValues({
-    group_id: gid, name: cfg.name || '', ip: cfg.server_ip || '',
-    port: String(cfg.server_port || ''), type: cfg.server_type || 'bedrock',
-    enabled: cfg.enabled !== false, hitokoto: cfg.use_hitokoto !== false,
-    simple_mode: cfg.simple_mode === true,
-    api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
-    mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
+// ── 删除 ──
+
+async function deleteConfig(gid) {
+  const ok = await showConfirm('确认删除？', `群号 ${gid} 的监控配置将被永久删除。`);
+  if (!ok) return;
+  try {
+    await bridge.apiPost('configs/delete', { group_id: gid });
+    showToast('配置已删除', 'success');
+    await loadTable();
+  } catch (e) {
+    showToast('删除失败：' + (e.message || e), 'error');
+  }
+}
+
+// ── 日志控制台 ──
+
+/** 用 log-line-template 克隆单条日志 DOM，避免 createElement + innerHTML 拼串。 */
+function createLogLineElement(entry) {
+  const tpl = $template('log-line-template');
+  if (!tpl) return null;
+  const frag = tpl.content.cloneNode(true);
+  const lv = normalizeLevel(entry.level);
+
+  const tsEl = frag.querySelector('[data-field="ts"]');
+  if (tsEl) tsEl.textContent = entry.ts || '';
+
+  const lvEl = frag.querySelector('[data-field="level"]');
+  if (lvEl) {
+    lvEl.textContent = lv;
+    lvEl.className = 'lv lv-' + lv;
+  }
+
+  const msgEl = frag.querySelector('[data-field="msg"]');
+  if (msgEl) msgEl.textContent = entry.msg || '';
+
+  const line = frag.firstElementChild;
+  if (line) {
+    line.dataset.level = lv;
+    line.dataset.id = String(entry.id);
+  }
+
+  return frag;
+}
+
+function refilterLogDom() {
+  const errOnly = $('errorsOnlyChk');
+  const eo = errOnly ? errOnly.checked : false;
+  const lines = $console().querySelectorAll('.log-line');
+  const searchEl = $('logSearch');
+  const sq = searchEl ? (searchEl.value || '').trim() : '';
+  lines.forEach((el) => {
+    const lv = el.dataset.level || 'INFO';
+    const matched = !sq || el.textContent.toLowerCase().includes(sq.toLowerCase());
+    const visible = (!eo || isErrorLevel(lv)) && matched;
+    el.style.display = visible ? '' : 'none';
+    el.classList.toggle('log-highlight', matched && sq !== '');
   });
-  // 编辑时锁定群号，不可修改
-  const fg = $('f_group_id');
-  if (fg) fg.disabled = true;
-  clearFormErrors();
-  const mo = $('modalOverlay');
-  if (mo) mo.classList.add('active');
-  setTimeout(toggleMcmotdapiConfig, 0);
-};
-
-function closeModal() {
-  const mo = $('modalOverlay');
-  if (mo) mo.classList.remove('active');
-  editingGid = null;
-}
-const cancelBtn = $('cancelBtn');
-if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-
-function toggleMcmotdapiConfig() {
-  const show = $('f_api_source') && $('f_api_source').value === 'mcmotdapi';
-  const grp = $('mcmotdapi_config_group');
-  if (grp) grp.style.display = show ? '' : 'none';
-}
-const fApiSource = $('f_api_source');
-if (fApiSource) fApiSource.addEventListener('change', toggleMcmotdapiConfig);
-
-function clearFormErrors() {
-  ['err_group_id', 'err_ip', 'err_port'].forEach(id => { const el = $(id); if (el) el.classList.remove('show'); });
+  updateLogCount();
+  if (state.get('logFollowBottom')) scrollLogToBottom();
 }
 
-function setFieldError(id, show) {
-  const el = $(id);
-  if (el) el.classList.toggle('show', show);
+function highlightLogSearch() {
+  const searchEl = $('logSearch');
+  const q = searchEl ? (searchEl.value || '').trim() : '';
+  const lines = $console().querySelectorAll('.log-line');
+  lines.forEach((el) => {
+    if (!q) { el.classList.remove('log-highlight'); return; }
+    el.classList.toggle('log-highlight', el.textContent.toLowerCase().includes(q.toLowerCase()));
+  });
 }
 
-const configForm = $('configForm');
-if (configForm) {
-  configForm.addEventListener('submit', async (e) => {
+function updateLogCount() {
+  const all = $console().querySelectorAll('.log-line').length;
+  const visible = Array.from($console().querySelectorAll('.log-line')).filter(el => el.style.display !== 'none').length;
+  const errOnly = $('errorsOnlyChk');
+  const eo = errOnly ? errOnly.checked : false;
+  const searchEl = $('logSearch');
+  const searching = searchEl ? (searchEl.value || '').trim() !== '' : false;
+  const ct = $('logCountText');
+  const ft = $('logFollowText');
+  if (ct) ct.textContent = (eo || searching) ? ('显示 ' + visible + ' / 共 ' + all + ' 条') : (all + ' 条');
+  if (ft) ft.textContent = state.get('logFollowBottom') ? '跟随最新' : '已暂停跟随（上滚中）';
+}
+
+function scrollLogToBottom() {
+  const el = $console();
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+  state.set('logFollowBottom', true);
+  updateLogCount();
+}
+
+function onLogScroll() {
+  const el = $console();
+  if (!el) return;
+  const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+  state.set('logFollowBottom', dist < 40);
+  updateLogCount();
+}
+
+async function pullLogs(initial) {
+  try {
+    const res = await bridge.apiGet('logs', {
+      since_id: state.get('logSinceId'),
+      limit: initial ? 200 : 100,
+    });
+    const data = res || {};
+    updateMonitorStatus(data);
+
+    const logs = Array.isArray(data.logs) ? data.logs : [];
+    if (logs.length) {
+      // DocumentFragment 批量追加，减少 DOM reflow
+      const fragment = document.createDocumentFragment();
+      let newSinceId = state.get('logSinceId');
+
+      for (const entry of logs) {
+        logLines.push(entry);
+        const lineEl = createLogLineElement(entry);
+        if (lineEl) fragment.appendChild(lineEl);
+        if (entry.id > newSinceId) newSinceId = entry.id;
+      }
+
+      // 移除空状态提示
+      const empty = $('logEmpty');
+      if (empty) empty.remove();
+
+      $console().appendChild(fragment);
+
+      // 裁剪
+      if (logLines.length > LOG_DOM_MAX) logLines = logLines.slice(-LOG_DOM_MAX);
+
+      state.set('logSinceId', newSinceId);
+      if (typeof data.next_id === 'number' && data.next_id > newSinceId) {
+        state.set('logSinceId', data.next_id - 1);
+      }
+
+      refilterLogDom();
+      if (state.get('logFollowBottom')) scrollLogToBottom();
+    } else if (initial) {
+      updateLogCount();
+    }
+  } catch (e) {
+    const st = $('monitorStatusText');
+    if (st) st.textContent = '日志拉取失败';
+    const dot = $('monitorDot');
+    if (dot) dot.className = 'status-dot off';
+  }
+}
+
+function updateMonitorStatus(data) {
+  const running = !!(data && data.monitor_running);
+  const dot = $('monitorDot');
+  const text = $('monitorStatusText');
+  const meta = $('monitorMetaText');
+  if (dot) dot.className = 'status-dot ' + (running ? 'on' : 'off');
+  if (text) text.textContent = running ? '监控中' : '未运行';
+  const se = $('statMonitor');
+  if (se) { se.textContent = running ? '监控中' : '未运行'; se.className = 'stat-value ' + (running ? 'on' : 'off'); }
+  const parts = [];
+  if (data && data.check_interval != null) parts.push('间隔 ' + data.check_interval + 's');
+  if (data && data.enabled_groups != null) parts.push('启用 ' + data.enabled_groups + ' 群');
+  if (data && data.last_check_at) parts.push('上次检查 ' + data.last_check_at);
+  if (data && data.last_round_summary) parts.push(data.last_round_summary);
+  if (meta) meta.textContent = parts.join(' · ');
+}
+
+function startLogPolling() {
+  stopLogPolling();
+  const ar = $('autoRefreshChk');
+  if (!ar || !ar.checked) return;
+  logPollTimer = setInterval(() => pullLogs(false), LOG_POLL_MS);
+}
+
+function stopLogPolling() {
+  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
+}
+
+async function clearLogs() {
+  const ok = await showConfirm('确认清空日志？', '运行日志将被全部清空，且无法恢复。');
+  if (!ok) return;
+  try {
+    await bridge.apiPost('logs/clear', {});
+    logLines = [];
+    state.set('logSinceId', 0);
+    const ce = $console();
+    if (ce) ce.innerHTML = '<div class="log-empty" id="logEmpty">日志已清空</div>';
+    updateLogCount();
+    await pullLogs(false);
+    showToast('日志已清空', 'success');
+  } catch (e) {
+    showToast('清空失败：' + (e.message || e), 'error');
+  }
+}
+
+function bindLogUi() {
+  const lc = $console();
+  if (lc) lc.addEventListener('scroll', onLogScroll);
+  const ec = $('errorsOnlyChk');
+  if (ec) ec.addEventListener('change', refilterLogDom);
+  const ar = $('autoRefreshChk');
+  if (ar) {
+    ar.addEventListener('change', () => {
+      if (ar.checked) { startLogPolling(); pullLogs(false); }
+      else stopLogPolling();
+    });
+  }
+  const sb = $('scrollBottomBtn');
+  if (sb) sb.addEventListener('click', scrollLogToBottom);
+  const cl = $('clearLogsBtn');
+  if (cl) cl.addEventListener('click', clearLogs);
+  const ls = $('logSearch');
+  if (ls) ls.addEventListener('input', debounce(refilterLogDom, 200));
+}
+
+// ── 表单提交 ──
+
+function bindFormSubmit() {
+  const form = $('configForm');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearFormErrors();
 
@@ -336,7 +626,7 @@ if (configForm) {
     sb.textContent = '保存中…';
     try {
       await bridge.apiPost('configs/save', data);
-      showToast(editingGid ? '配置已更新' : '配置已添加', 'success');
+      showToast(state.get('editingGid') ? '配置已更新' : '配置已添加', 'success');
       closeModal();
       await loadTable();
     } catch (err) {
@@ -348,210 +638,36 @@ if (configForm) {
   });
 }
 
-window.deleteConfig = async function (gid) {
-  const ok = await showConfirm('确认删除？', `群号 ${gid} 的监控配置将被永久删除。`);
-  if (!ok) return;
-  try {
-    await bridge.apiPost('configs/delete', { group_id: gid });
-    showToast('配置已删除', 'success');
-    await loadTable();
-  } catch (e) {
-    showToast('删除失败：' + (e.message || e), 'error');
-  }
-};
+// ── 事件绑定（DOM 就绪后调用） ──
 
-function normalizeLevel(level) {
-  const lv = String(level || 'INFO').toUpperCase();
-  return lv === 'WARNING' ? 'WARN' : lv;
+function bindStaticUi() {
+  // 添加按钮
+  const addBtn = $('addBtn');
+  if (addBtn) addBtn.addEventListener('click', openAddModal);
+
+  // Modal 取消
+  const cancelBtn = $('cancelBtn');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+
+  // Confirm 按钮
+  const confirmCancel = $('confirmCancel');
+  if (confirmCancel) confirmCancel.addEventListener('click', () => closeConfirm(false));
+  const confirmOk = $('confirmOk');
+  if (confirmOk) confirmOk.addEventListener('click', () => closeConfirm(true));
+
+  // mcmotdapi 配置显隐
+  const fApiSource = $('f_api_source');
+  if (fApiSource) fApiSource.addEventListener('change', toggleMcmotdapiConfig);
 }
 
-function isErrorLevel(level) {
-  return ['WARN', 'ERROR'].includes(normalizeLevel(level));
-}
-
-function updateMonitorStatus(data) {
-  const running = !!(data && data.monitor_running);
-  const dot = $('monitorDot');
-  const text = $('monitorStatusText');
-  const meta = $('monitorMetaText');
-  if (dot) dot.className = 'status-dot ' + (running ? 'on' : 'off');
-  if (text) text.textContent = running ? '监控中' : '未运行';
-  const se = $('statMonitor');
-  if (se) { se.textContent = running ? '监控中' : '未运行'; se.className = 'stat-value ' + (running ? 'on' : 'off'); }
-  const parts = [];
-  if (data && data.check_interval != null) parts.push('间隔 ' + data.check_interval + 's');
-  if (data && data.enabled_groups != null) parts.push('启用 ' + data.enabled_groups + ' 群');
-  if (data && data.last_check_at) parts.push('上次检查 ' + data.last_check_at);
-  if (data && data.last_round_summary) parts.push(data.last_round_summary);
-  if (meta) meta.textContent = parts.join(' · ');
-}
-
-function appendLogDom(entry) {
-  const consoleEl = $('logConsole');
-  if (!consoleEl) return;
-  const empty = $('logEmpty');
-  if (empty) empty.remove();
-
-  const line = document.createElement('div');
-  line.className = 'log-line';
-  const lv = normalizeLevel(entry.level);
-  line.dataset.level = lv;
-  line.dataset.id = String(entry.id);
-  line.innerHTML =
-    '<span class="ts">' + escHtml(entry.ts || '') + '</span>' +
-    '<span class="lv lv-' + escHtml(lv) + '">' + escHtml(lv) + '</span>' +
-    '<span class="msg">' + escHtml(entry.msg || '') + '</span>';
-
-  const errOnly = $('errorsOnlyChk');
-  if (errOnly && errOnly.checked && !isErrorLevel(lv)) line.style.display = 'none';
-  consoleEl.appendChild(line);
-
-  while (consoleEl.querySelectorAll('.log-line').length > LOG_DOM_MAX) {
-    const first = consoleEl.querySelector('.log-line');
-    if (first) first.remove();
-  }
-  highlightLogSearch();
-}
-
-function refilterLogDom() {
-  const errOnly = $('errorsOnlyChk');
-  const eo = errOnly ? errOnly.checked : false;
-  const lines = $('logConsole').querySelectorAll('.log-line');
-  const searchEl = $('logSearch');
-  const sq = searchEl ? (searchEl.value || '').trim() : '';
-  lines.forEach((el) => {
-    const lv = el.dataset.level || 'INFO';
-    const matched = !sq || el.textContent.toLowerCase().includes(sq.toLowerCase());
-    const visible = (!eo || isErrorLevel(lv)) && matched;
-    el.style.display = visible ? '' : 'none';
-    el.classList.toggle('log-highlight', matched && sq !== '');
-  });
-  updateLogCount();
-  if (logFollowBtm) scrollLogToBottom();
-}
-
-function highlightLogSearch() {
-  const searchEl = $('logSearch');
-  const q = searchEl ? (searchEl.value || '').trim() : '';
-  const lines = $('logConsole').querySelectorAll('.log-line');
-  lines.forEach((el) => {
-    if (!q) { el.classList.remove('log-highlight'); return; }
-    el.classList.toggle('log-highlight', el.textContent.toLowerCase().includes(q.toLowerCase()));
-  });
-}
-
-function updateLogCount() {
-  const all = $('logConsole').querySelectorAll('.log-line').length;
-  const visible = Array.from($('logConsole').querySelectorAll('.log-line')).filter(el => el.style.display !== 'none').length;
-  const errOnly = $('errorsOnlyChk');
-  const eo = errOnly ? errOnly.checked : false;
-  const searchEl = $('logSearch');
-  const searching = searchEl ? (searchEl.value || '').trim() !== '' : false;
-  const ct = $('logCountText');
-  const ft = $('logFollowText');
-  if (ct) ct.textContent = (eo || searching) ? ('显示 ' + visible + ' / 共 ' + all + ' 条') : (all + ' 条');
-  if (ft) ft.textContent = logFollowBtm ? '跟随最新' : '已暂停跟随（上滚中）';
-}
-
-function scrollLogToBottom() {
-  const el = $('logConsole');
-  if (!el) return;
-  el.scrollTop = el.scrollHeight;
-  logFollowBtm = true;
-  updateLogCount();
-}
-
-function onLogScroll() {
-  const el = $('logConsole');
-  if (!el) return;
-  const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-  logFollowBtm = dist < 40;
-  updateLogCount();
-}
-
-async function pullLogs(initial) {
-  try {
-    const res = await bridge.apiGet('logs', {
-      since_id: logSinceId,
-      limit: initial ? 200 : 100,
-    });
-    const data = res || {};
-    updateMonitorStatus(data);
-
-    const logs = Array.isArray(data.logs) ? data.logs : [];
-    if (logs.length) {
-      for (const entry of logs) {
-        logLines.push(entry);
-        appendLogDom(entry);
-        if (entry.id > logSinceId) logSinceId = entry.id;
-      }
-      if (logLines.length > LOG_DOM_MAX) logLines = logLines.slice(-LOG_DOM_MAX);
-      if (typeof data.next_id === 'number' && data.next_id > logSinceId) logSinceId = data.next_id - 1;
-      refilterLogDom();
-      if (logFollowBtm) scrollLogToBottom();
-    } else if (initial) {
-      updateLogCount();
-    }
-  } catch (e) {
-    const st = $('monitorStatusText');
-    if (st) st.textContent = '日志拉取失败';
-    const dot = $('monitorDot');
-    if (dot) dot.className = 'status-dot off';
-  }
-}
-
-function startLogPolling() {
-  stopLogPolling();
-  const ar = $('autoRefreshChk');
-  if (!ar || !ar.checked) return;
-  logPollTimer = setInterval(() => pullLogs(false), LOG_POLL_MS);
-}
-
-function stopLogPolling() {
-  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
-}
-
-async function clearLogs() {
-  const ok = await showConfirm('确认清空日志？', '运行日志将被全部清空，且无法恢复。');
-  if (!ok) return;
-  try {
-    await bridge.apiPost('logs/clear', {});
-    logLines = [];
-    logSinceId = 0;
-    const ce = $('logConsole');
-    if (ce) ce.innerHTML = '<div class="log-empty" id="logEmpty">日志已清空</div>';
-    updateLogCount();
-    await pullLogs(false);
-    showToast('日志已清空', 'success');
-  } catch (e) {
-    showToast('清空失败：' + (e.message || e), 'error');
-  }
-}
-
-function bindLogUi() {
-  const lc = $('logConsole');
-  if (lc) lc.addEventListener('scroll', onLogScroll);
-  const ec = $('errorsOnlyChk');
-  if (ec) ec.addEventListener('change', refilterLogDom);
-  const ar = $('autoRefreshChk');
-  if (ar) {
-    ar.addEventListener('change', () => {
-      if (ar.checked) { startLogPolling(); pullLogs(false); }
-      else stopLogPolling();
-    });
-  }
-  const sb = $('scrollBottomBtn');
-  if (sb) sb.addEventListener('click', scrollLogToBottom);
-  const cl = $('clearLogsBtn');
-  if (cl) cl.addEventListener('click', clearLogs);
-  const ls = $('logSearch');
-  if (ls) ls.addEventListener('input', debounce(refilterLogDom, 200));
-}
+// ── 入口 ──
 
 async function main() {
   try {
     await bridge.ready();
+    bindStaticUi();
     bindFilters();
+    bindFormSubmit();
     bindLogUi();
     await loadTable();
     await pullLogs(true);
@@ -564,4 +680,5 @@ async function main() {
     if (dot) dot.className = 'status-dot off';
   }
 }
+
 main();
