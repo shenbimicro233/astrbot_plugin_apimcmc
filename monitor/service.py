@@ -14,7 +14,11 @@ from typing import Callable
 from astrbot.api.star import Context
 
 from ..mcserver import create_mc_client
-from ..mcserver.formatter import format_server_info, format_server_info_simple
+from ..mcserver.formatter import (
+    format_server_info,
+    format_server_info_custom,
+    format_server_info_simple,
+)
 from ..utils import GroupTarget, build_group_session, send_to_group
 from ..utils.group_config import ConfigManager, GroupConfig
 from ..utils.hitokoto import get_hitokoto
@@ -329,16 +333,27 @@ class MonitorService:
 
             server_type = cfg.server_type if cfg else "bedrock"
 
-            # 根据简化模式选择消息格式
-            effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
-            if effective_simple:
-                status_line = format_server_info_simple(server_data, server_type)
-                final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
-            else:
-                full_status = format_server_info(server_data, server_type)
-                final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
+            # 用户自定义了名称则替换原始 host
+            if cfg and cfg.name and cfg.name != "Minecraft服务器":
+                server_data["name"] = cfg.name
 
-            if cfg and cfg.use_hitokoto:
+            # 根据模式选择格式：自定义 > 精简 > 完整
+            if cfg.custom_mode and cfg.custom_fields:
+                status_line = format_server_info_custom(server_data, server_type, cfg.custom_fields)
+                final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
+                need_hitokoto = "hitokoto" in cfg.custom_fields
+            else:
+                effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+                if effective_simple:
+                    status_line = format_server_info_simple(server_data)
+                    final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
+                    need_hitokoto = False
+                else:
+                    full_status = format_server_info(server_data, server_type)
+                    final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
+                    need_hitokoto = True
+
+            if need_hitokoto:
                 hitokoto = await get_hitokoto()
                 if hitokoto:
                     final_msg += f"\n\n💬 {hitokoto}"

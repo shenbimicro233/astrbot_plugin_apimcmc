@@ -20,7 +20,11 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 from .mcserver import create_mc_client
-from .mcserver.formatter import format_server_info, format_server_info_simple
+from .mcserver.formatter import (
+    format_server_info,
+    format_server_info_custom,
+    format_server_info_simple,
+)
 from .monitor.run_log import RunLogBuffer
 from .monitor.service import MonitorConfig, MonitorService
 from .utils import build_group_session
@@ -29,7 +33,7 @@ from .utils.hitokoto import get_hitokoto
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.0.4"
 
 
 @register(
@@ -191,12 +195,22 @@ class MyPlugin(Star):
                 yield event.plain_result("❌ 获取服务器信息失败，请检查 IP/端口/服务器类型")
                 return
 
-            # 根据简化模式选择格式
-            effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
-            if effective_simple:
-                result = format_server_info_simple(server_data, cfg.server_type)
+            # 自定义名称替换原始 host
+            if cfg.name and cfg.name != "Minecraft服务器":
+                server_data["name"] = cfg.name
+
+            # 根据模式选择格式：自定义 > 精简 > 完整
+            if cfg.custom_mode and cfg.custom_fields:
+                result = format_server_info_custom(server_data, cfg.server_type, cfg.custom_fields)
+                need_hitokoto = "hitokoto" in cfg.custom_fields
             else:
-                result = format_server_info(server_data, cfg.server_type)
+                effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+                if effective_simple:
+                    result = format_server_info_simple(server_data)
+                    need_hitokoto = False
+                else:
+                    result = format_server_info(server_data, cfg.server_type)
+                    need_hitokoto = True
 
             # 显示使用的 API 源
             effective_source = cfg.api_source if cfg.api_source else self.api_source
@@ -207,7 +221,7 @@ class MyPlugin(Star):
                 source_tag = "mcstatus.io"
             result = f"🔍 API: {source_tag}\n\n{result}"
 
-            if cfg.use_hitokoto:
+            if need_hitokoto:
                 hitokoto = await get_hitokoto()
                 if hitokoto:
                     result += f"\n\n💬 {hitokoto}"

@@ -90,13 +90,12 @@ class WebApiHandler:
                     body.get("server_type", DEFAULT_GROUP_CONFIG["server_type"])
                 ).strip(),
                 "enabled": bool(body.get("enabled", True)),
-                "use_hitokoto": bool(
-                    body.get("use_hitokoto", DEFAULT_GROUP_CONFIG["use_hitokoto"])
-                ),
                 "api_source": str(body.get("api_source", "")).strip(),
                 "mcmotdapi_host": str(body.get("mcmotdapi_host", "")).strip(),
                 "mcmotdapi_ssl": body.get("mcmotdapi_ssl"),
                 "simple_mode": body.get("simple_mode"),
+                "custom_mode": body.get("custom_mode"),
+                "custom_fields": body.get("custom_fields"),
             }
             if not data["group_id"] or not data["server_ip"]:
                 return json_response({"ok": False, "error": "缺少必填字段"})

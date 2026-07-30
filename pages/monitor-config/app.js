@@ -68,6 +68,73 @@ function isErrorLevel(level) {
   return ['WARN', 'ERROR'].includes(normalizeLevel(level));
 }
 
+// ── 消息预览 ──
+
+const CUSTOM_FIELD_ORDER = [
+  'status_emoji', 'name', 'motd', 'version', 'protocol',
+  'player_count', 'player_list', 'software', 'type_label', 'map', 'update_time',
+  'hitokoto',
+];
+
+const FIELD_PREVIEW_LABELS = {
+  status_emoji: '🟢',
+  name: 'play.example.com',
+  motd: '📝 MOTD: A Minecraft Server',
+  version: '🎮 版本: Paper 1.20.1',
+  protocol: '',
+  player_count: '👥 5/20',
+  player_list: '📋 玩家列表: Steve, Alex',
+  software: '🛠️ 软件: Paper',
+  type_label: '🔧 类型: 基岩版',
+  map: '',
+  update_time: '🕒 更新时间: 2026-07-22 14:30',
+  hitokoto: '💬 这是一条示例一言',
+};
+
+function renderPreview(fields) {
+  if (!fields || fields.length === 0) return '请勾选需要显示的字段';
+  const lines = [];
+  for (const key of CUSTOM_FIELD_ORDER) {
+    if (!fields.includes(key)) continue;
+    const text = FIELD_PREVIEW_LABELS[key];
+    if (text) lines.push(text);
+  }
+  return lines.join('\n') || '请勾选需要显示的字段';
+}
+
+function getSelectedMode() {
+  const r = document.querySelector('input[name="msg_format"]:checked');
+  return r ? r.value : 'full';
+}
+
+function getSelectedFields() {
+  return Array.from(
+    document.querySelectorAll('#customFieldsPanel input[type="checkbox"]:checked'),
+    cb => cb.value
+  );
+}
+
+function updateCustomFieldsVisibility() {
+  const panel = document.getElementById('customFieldsPanel');
+  if (panel) panel.style.display = getSelectedMode() === 'custom' ? '' : 'none';
+}
+
+function updatePreview() {
+  const el = document.getElementById('previewContent');
+  if (!el) return;
+  const mode = getSelectedMode();
+  let text = '';
+  if (mode === 'full') {
+    text = '🟢 服务器: play.example.com\n📝 MOTD: A Minecraft Server\n🎮 版本: Paper 1.20.1\n👥 在线玩家: 5/20\n📋 玩家列表: Steve, Alex\n🔧 类型: 基岩版\n🕒 更新时间: 2026-07-22 14:30\n💬 这是一条示例一言';
+  } else if (mode === 'simple') {
+    text = '🟢 play.example.com  👥 5/20';
+  } else {
+    text = renderPreview(getSelectedFields());
+  }
+  el.textContent = text;
+  el.className = 'preview-content' + (text ? '' : ' ph');
+}
+
 // ── Toast ──
 
 function showToast(msg, type) {
@@ -183,10 +250,14 @@ function createCardElement(gid, cfg) {
   }
 
   const fmtEl = bind('msg-format');
-  if (fmtEl) fmtEl.textContent = cfg.simple_mode === true ? '简化' : (cfg.simple_mode === false ? '完整' : '全局默认');
-
-  const hitoEl = bind('hitokoto');
-  if (hitoEl) hitoEl.textContent = cfg.use_hitokoto !== false ? '开启' : '关闭';
+  if (fmtEl) {
+    if (cfg.custom_mode) {
+      const n = (cfg.custom_fields || []).length;
+      fmtEl.textContent = '自定义 (' + n + ' 字段)';
+    } else {
+      fmtEl.textContent = cfg.simple_mode === true ? '简化' : (cfg.simple_mode === false ? '完整' : '全局默认');
+    }
+  }
 
   const gidEl = bind('group-id');
   if (gidEl) {
@@ -295,7 +366,7 @@ function openAddModal() {
   state.set('editingGid', null);
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
-  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
+  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, custom_mode: false, custom_fields: [], api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
@@ -313,8 +384,9 @@ function editConfig(gid) {
   setFormValues({
     group_id: gid, name: cfg.name || '', ip: cfg.server_ip || '',
     port: String(cfg.server_port || ''), type: cfg.server_type || 'bedrock',
-    enabled: cfg.enabled !== false, hitokoto: cfg.use_hitokoto !== false,
+    enabled: cfg.enabled !== false,
     simple_mode: cfg.simple_mode === true,
+    custom_mode: cfg.custom_mode === true, custom_fields: cfg.custom_fields || [],
     api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
     mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
   });
@@ -362,14 +434,26 @@ function setFormValues(v) {
   });
   const f_en = $('f_enabled');
   if (f_en) f_en.checked = v.enabled !== false;
-  const f_h = $('f_hitokoto');
-  if (f_h) f_h.checked = v.hitokoto !== false;
-  const f_simple = $('f_simple_mode');
-  if (f_simple) f_simple.checked = v.simple_mode === true;
   const f_ssl = $('f_mcmotdapi_ssl');
   if (f_ssl) f_ssl.checked = v.mcmotdapi_ssl !== false;
   const f_as = $('f_api_source');
   if (f_as) f_as.value = v.api_source || '';
+
+  // Mode radio
+  let mode = 'full';
+  if (v.custom_mode === true) mode = 'custom';
+  else if (v.simple_mode === true) mode = 'simple';
+  const mr = document.querySelector('input[name="msg_format"][value="' + mode + '"]');
+  if (mr) mr.checked = true;
+
+  // Custom field checkboxes
+  const cf = v.custom_fields || [];
+  document.querySelectorAll('#customFieldsPanel input[type="checkbox"]').forEach(cb => {
+    cb.checked = cf.includes(cb.value);
+  });
+
+  updateCustomFieldsVisibility();
+  updatePreview();
 }
 
 // ── 删除 ──
@@ -613,12 +697,21 @@ function bindFormSubmit() {
       server_port: port,
       server_type: $('f_type').value,
       enabled: $('f_enabled').checked,
-      use_hitokoto: $('f_hitokoto').checked,
-      simple_mode: $('f_simple_mode').checked,
       api_source: $('f_api_source').value,
       mcmotdapi_host: $('f_mcmotdapi_host').value,
       mcmotdapi_ssl: $('f_mcmotdapi_ssl').checked,
     };
+
+    const mode = getSelectedMode();
+    if (mode === 'custom') {
+      data.custom_mode = true;
+      data.custom_fields = getSelectedFields();
+      data.simple_mode = false;
+    } else {
+      data.custom_mode = false;
+      data.custom_fields = null;
+      data.simple_mode = mode === 'simple';
+    }
 
     const sb = $('submitBtn');
     if (!sb) return;
@@ -658,6 +751,22 @@ function bindStaticUi() {
   // mcmotdapi 配置显隐
   const fApiSource = $('f_api_source');
   if (fApiSource) fApiSource.addEventListener('change', toggleMcmotdapiConfig);
+
+  // 消息格式模式切换
+  document.querySelectorAll('input[name="msg_format"]').forEach(el => {
+    el.addEventListener('change', () => {
+      updateCustomFieldsVisibility();
+      updatePreview();
+    });
+  });
+
+  // 自定义字段勾选 → 更新预览
+  const cfPanel = document.getElementById('customFieldsPanel');
+  if (cfPanel) {
+    cfPanel.addEventListener('change', (e) => {
+      if (e.target.type === 'checkbox') updatePreview();
+    });
+  }
 }
 
 // ── 入口 ──

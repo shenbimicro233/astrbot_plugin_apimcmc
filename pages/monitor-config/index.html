@@ -260,6 +260,31 @@
   .form-checkbox input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 
+  /* Format mode */
+  .format-section { margin-top: 6px; padding: 14px; background: #f9fafb; border-radius: 10px; border: 1px solid var(--border); }
+  .format-section-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; display: block; }
+  .format-options { display: flex; gap: 6px; margin-bottom: 10px; }
+  .format-radio {
+    display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+    font-size: 13px; padding: 5px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel);
+    transition: var(--transition); user-select: none;
+  }
+  .format-radio:has(input:checked) { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+  .format-radio input { accent-color: var(--primary); }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 10px; }
+  .field-chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; padding: 3px 0; color: var(--text); }
+  .field-chk input { width: 15px; height: 15px; accent-color: var(--primary); }
+  .preview-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .preview-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); padding: 8px 10px 0; text-transform: uppercase; letter-spacing: 0.04em; }
+  .preview-content {
+    background: #0b1220; color: #d1d5db;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.6; padding: 10px 12px;
+    white-space: pre-wrap; word-break: break-word; min-height: 36px; margin: 6px 8px 8px; border-radius: 8px;
+  }
+  .preview-content.ph { color: #6b7280; font-style: italic; }
+
   /* Toast */
   .toast {
     position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -430,14 +455,6 @@
             <input id="f_enabled" type="checkbox" checked>
             <label for="f_enabled">启用监控</label>
           </div>
-          <div class="form-checkbox" style="margin-top:8px;">
-            <input id="f_hitokoto" type="checkbox" checked>
-            <label for="f_hitokoto">附加一言</label>
-          </div>
-          <div class="form-checkbox" style="margin-top:8px;">
-            <input id="f_simple_mode" type="checkbox">
-            <label for="f_simple_mode">简化消息格式</label>
-          </div>
         </div>
       </div>
       <div id="mcmotdapi_config_group" class="form-row" style="display:none;margin-top:8px;padding:10px;background:#f5f5f5;border-radius:6px;">
@@ -451,6 +468,36 @@
             <input id="f_mcmotdapi_ssl" type="checkbox" checked>
             <label for="f_mcmotdapi_ssl">启用 HTTPS</label>
           </div>
+        </div>
+      </div>
+
+      <!-- 消息格式 -->
+      <div class="format-section">
+        <span class="format-section-title">消息格式</span>
+        <div class="format-options">
+          <label class="format-radio"><input type="radio" name="msg_format" value="full" checked> 完整</label>
+          <label class="format-radio"><input type="radio" name="msg_format" value="simple"> 精简</label>
+          <label class="format-radio"><input type="radio" name="msg_format" value="custom"> 自定义</label>
+        </div>
+        <div id="customFieldsPanel" style="display:none;">
+          <div class="field-grid">
+            <label class="field-chk"><input type="checkbox" value="status_emoji"> 在线状态图标</label>
+            <label class="field-chk"><input type="checkbox" value="name"> 服务器名称</label>
+            <label class="field-chk"><input type="checkbox" value="version"> 游戏版本</label>
+            <label class="field-chk"><input type="checkbox" value="protocol"> 协议版本</label>
+            <label class="field-chk"><input type="checkbox" value="player_count"> 在线/最大玩家</label>
+            <label class="field-chk"><input type="checkbox" value="player_list"> 玩家列表</label>
+            <label class="field-chk"><input type="checkbox" value="motd"> MOTD 描述</label>
+            <label class="field-chk"><input type="checkbox" value="software"> 服务端软件</label>
+            <label class="field-chk"><input type="checkbox" value="type_label"> 服务器类型</label>
+            <label class="field-chk"><input type="checkbox" value="map"> 地图名称</label>
+            <label class="field-chk"><input type="checkbox" value="update_time"> 更新时间</label>
+            <label class="field-chk"><input type="checkbox" value="hitokoto"> 附加一言</label>
+          </div>
+        </div>
+        <div class="preview-box">
+          <div class="preview-title">消息预览</div>
+          <pre id="previewContent" class="preview-content ph">选择消息格式后在此查看预览</pre>
         </div>
       </div>
       <div class="modal-footer">

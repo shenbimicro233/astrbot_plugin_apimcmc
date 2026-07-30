@@ -4,8 +4,8 @@
 本插件基于原作者cryfly666为灵感，添加了多项实用功能。
 
 [![AI Assisted](https://img.shields.io/badge/AI-Kimi%20Assisted-10A37F?style=for-the-badge&logo=openai&logoColor=white)](#ai-制作声明)
-  
-**AI 制作声明：本插件采用生成式 AI 参与协议设计、编码、文档编写与测试。** AI 生成或修改的内容由仓库维护者审阅、验证并承担最终维护责任。
+
+**AI 制作声明**：本插件的部分代码由生成式 AI 协助完成，所有内容经仓库维护者审阅并承担最终责任。
 
 
 ## 功能特性

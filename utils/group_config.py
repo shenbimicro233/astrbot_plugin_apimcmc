@@ -24,11 +24,12 @@ DEFAULT_GROUP_CONFIG = {
     "server_port": 19132,
     "server_type": "bedrock",
     "enabled": True,
-    "use_hitokoto": True,
     "api_source": "",
     "mcmotdapi_host": "",
     "mcmotdapi_ssl": None,
     "simple_mode": None,
+    "custom_mode": None,
+    "custom_fields": None,
 }
 
 
@@ -47,15 +48,16 @@ class GroupConfig:
             data.get("server_type", DEFAULT_GROUP_CONFIG["server_type"])
         )
         self.enabled: bool = bool(data.get("enabled", True))
-        self.use_hitokoto: bool = bool(
-            data.get("use_hitokoto", DEFAULT_GROUP_CONFIG["use_hitokoto"])
-        )
         self.api_source: str = str(data.get("api_source", ""))
         self.mcmotdapi_host: str = str(data.get("mcmotdapi_host", "") or "")
         raw_ssl = data.get("mcmotdapi_ssl")
         self.mcmotdapi_ssl: bool | None = None if raw_ssl is None else bool(raw_ssl)
         raw_simple = data.get("simple_mode")
         self.simple_mode: bool | None = None if raw_simple is None else bool(raw_simple)
+        raw_custom = data.get("custom_mode")
+        self.custom_mode: bool | None = None if raw_custom is None else bool(raw_custom)
+        raw_fields = data.get("custom_fields")
+        self.custom_fields: list | None = raw_fields if isinstance(raw_fields, list) else None
         self.created_at: str = str(data.get("created_at", ""))
 
     def to_dict(self) -> dict:
@@ -67,11 +69,12 @@ class GroupConfig:
             "server_port": self.server_port,
             "server_type": self.server_type,
             "enabled": self.enabled,
-            "use_hitokoto": self.use_hitokoto,
             "api_source": self.api_source,
             "mcmotdapi_host": self.mcmotdapi_host,
             "mcmotdapi_ssl": self.mcmotdapi_ssl,
             "simple_mode": self.simple_mode,
+            "custom_mode": self.custom_mode,
+            "custom_fields": self.custom_fields,
             "created_at": self.created_at,
         }
 
