@@ -68,6 +68,13 @@ function isErrorLevel(level) {
   return ['WARN', 'ERROR'].includes(normalizeLevel(level));
 }
 
+function ensureApiOk(response) {
+  if (response && (response.status === 'error' || response.ok === false)) {
+    throw new Error(response.message || response.error || '请求失败');
+  }
+  return response;
+}
+
 // ── 消息预览 ──
 
 const CUSTOM_FIELD_ORDER = [
@@ -350,7 +357,7 @@ function bindFilters() {
 async function loadTable() {
   showSkeleton();
   try {
-    const res = await bridge.apiGet('configs');
+    const res = ensureApiOk(await bridge.apiGet('configs'));
     state.set('allCfg', res || {});
     updateStats();
     renderCards();
@@ -462,7 +469,7 @@ async function deleteConfig(gid) {
   const ok = await showConfirm('确认删除？', `群号 ${gid} 的监控配置将被永久删除。`);
   if (!ok) return;
   try {
-    await bridge.apiPost('configs/delete', { group_id: gid });
+    ensureApiOk(await bridge.apiPost('configs/delete', { group_id: gid }));
     showToast('配置已删除', 'success');
     await loadTable();
   } catch (e) {
@@ -558,10 +565,10 @@ function onLogScroll() {
 
 async function pullLogs(initial) {
   try {
-    const res = await bridge.apiGet('logs', {
+    const res = ensureApiOk(await bridge.apiGet('logs', {
       since_id: state.get('logSinceId'),
       limit: initial ? 200 : 100,
-    });
+    }));
     const data = res || {};
     updateMonitorStatus(data);
 
@@ -582,10 +589,14 @@ async function pullLogs(initial) {
       const empty = $('logEmpty');
       if (empty) empty.remove();
 
-      $console().appendChild(fragment);
+      const consoleEl = $console();
+      consoleEl.appendChild(fragment);
 
       // 裁剪
       if (logLines.length > LOG_DOM_MAX) logLines = logLines.slice(-LOG_DOM_MAX);
+      const renderedLines = consoleEl.querySelectorAll('.log-line');
+      const excess = renderedLines.length - LOG_DOM_MAX;
+      for (let i = 0; i < excess; i += 1) renderedLines[i].remove();
 
       state.set('logSinceId', newSinceId);
       if (typeof data.next_id === 'number' && data.next_id > newSinceId) {
@@ -637,7 +648,7 @@ async function clearLogs() {
   const ok = await showConfirm('确认清空日志？', '运行日志将被全部清空，且无法恢复。');
   if (!ok) return;
   try {
-    await bridge.apiPost('logs/clear', {});
+    ensureApiOk(await bridge.apiPost('logs/clear', {}));
     logLines = [];
     state.set('logSinceId', 0);
     const ce = $console();
@@ -718,7 +729,7 @@ function bindFormSubmit() {
     sb.disabled = true;
     sb.textContent = '保存中…';
     try {
-      await bridge.apiPost('configs/save', data);
+      ensureApiOk(await bridge.apiPost('configs/save', data));
       showToast(state.get('editingGid') ? '配置已更新' : '配置已添加', 'success');
       closeModal();
       await loadTable();

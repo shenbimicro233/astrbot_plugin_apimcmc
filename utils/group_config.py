@@ -7,15 +7,16 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
 from astrbot.api import logger
+from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-CONFIG_DATA_DIR = os.path.join("data", "plugin_data", PLUGIN_NAME)
-CONFIG_FILE = os.path.join(CONFIG_DATA_DIR, "configs.json")
+CONFIG_DATA_DIR = Path(get_astrbot_plugin_data_path()) / PLUGIN_NAME
+CONFIG_FILE = CONFIG_DATA_DIR / "configs.json"
 
 DEFAULT_GROUP_CONFIG = {
     "group_id": "",
@@ -86,35 +87,47 @@ class GroupConfig:
 class ConfigManager:
     """Per-group 配置管理器，以 JSON 文件持久化存储。"""
 
-    def __init__(self):
+    def __init__(self, config_file: str | Path | None = None):
         """加载已存在的配置文件，不存在则初始化为空。"""
+        self.config_file = Path(config_file) if config_file else CONFIG_FILE
         self._groups: Dict[str, GroupConfig] = {}
         self._load()
 
     def _load(self) -> None:
         """从 CONFIG_FILE 读取配置并解析。"""
         try:
-            os.makedirs(CONFIG_DATA_DIR, exist_ok=True)
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            if self.config_file.exists():
+                with self.config_file.open("r", encoding="utf-8") as f:
                     raw = json.load(f)
+                if not isinstance(raw, dict) or not isinstance(raw.get("groups", {}), dict):
+                    raise ValueError("per-group 配置文件格式错误")
+                loaded_groups: Dict[str, GroupConfig] = {}
                 for gid, gdata in raw.get("groups", {}).items():
-                    self._groups[gid] = GroupConfig(gdata)
+                    if not isinstance(gdata, dict):
+                        raise ValueError(f"群 {gid} 的配置格式错误")
+                    loaded_groups[str(gid)] = GroupConfig(gdata)
+                self._groups = loaded_groups
                 logger.info(f"已加载 {len(self._groups)} 个群的配置")
             else:
                 logger.info("per-group 配置文件不存在，初始化为空")
         except Exception as e:
             logger.error(f"加载 per-group 配置失败: {e}")
 
-    def _save(self) -> None:
+    def _save(self, groups: Dict[str, GroupConfig] | None = None) -> None:
         """将当前配置写入 CONFIG_FILE。"""
+        source = self._groups if groups is None else groups
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        groups_raw = {gid: cfg.to_dict() for gid, cfg in source.items()}
+        temp_file = self.config_file.with_suffix(self.config_file.suffix + ".tmp")
         try:
-            os.makedirs(CONFIG_DATA_DIR, exist_ok=True)
-            groups_raw = {gid: cfg.to_dict() for gid, cfg in self._groups.items()}
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            with temp_file.open("w", encoding="utf-8") as f:
                 json.dump({"groups": groups_raw}, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"保存 per-group 配置失败: {e}")
+                f.flush()
+            temp_file.replace(self.config_file)
+        except Exception:
+            temp_file.unlink(missing_ok=True)
+            raise
 
     def get_all(self) -> Dict[str, dict]:
         """返回所有群的配置字典（以 dict 形式）。"""
@@ -152,15 +165,19 @@ class ConfigManager:
             "created_at": created_at,
         }
         cfg = GroupConfig(merged)
-        self._groups[gid] = cfg
-        self._save()
+        updated_groups = dict(self._groups)
+        updated_groups[gid] = cfg
+        self._save(updated_groups)
+        self._groups = updated_groups
         return cfg
 
     def delete_group(self, group_id: str) -> bool:
         """删除指定群的配置，存在则删除并持久化。"""
         if group_id in self._groups:
-            del self._groups[group_id]
-            self._save()
+            updated_groups = dict(self._groups)
+            del updated_groups[group_id]
+            self._save(updated_groups)
+            self._groups = updated_groups
             return True
         return False
 

@@ -212,3 +212,7 @@ data/
 # Generated code quality reports
 fuc-report.json
 
+# Local reference source and analysis cache
+AstrBot-master/
+.codegraph/
+

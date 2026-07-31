@@ -15,8 +15,8 @@ from ..mcserver.formatter import extract_player_names
 class ChangeTracker:
     """状态变化检测器。
 
-    维护 last_* 缓存，每次调用 check_changes() 对比当前数据与缓存，
-    返回 (has_changed, description)。
+    维护 last_* 缓存，check_changes() 仅对比当前数据与缓存，
+    通知成功后由调用方通过 commit() 提交新状态。
     """
 
     def __init__(self):
@@ -28,7 +28,7 @@ class ChangeTracker:
         """检查服务器状态是否有变化。
 
         Returns:
-            (True, 描述信息) — 有变化或首次检测
+            (True, 描述信息) — 有变化或首次检测，尚未提交状态
             (False, "无变化") — 无变化
         """
         if server_data is None:
@@ -42,10 +42,6 @@ class ChangeTracker:
 
         # 首次检测
         if self.last_player_count is None:
-            self.last_player_count = current_online
-            self.last_player_list = current_player_names.copy()
-            self.last_status = current_status
-
             if current_online > 0:
                 return True, "服务器监控已启动，当前有玩家在线"
             return True, "服务器监控已启动"
@@ -74,14 +70,15 @@ class ChangeTracker:
             else:
                 changes.append(f"📉 有 {abs(player_diff)} 名玩家离开了服务器")
 
-        # 更新缓存
-        self.last_player_count = current_online
-        self.last_player_list = current_player_names.copy()
-        self.last_status = current_status
-
         if changes:
             return True, "\n".join(changes)
         return False, "无变化"
+
+    def commit(self, server_data: dict) -> None:
+        """提交一次已成功处理的服务器状态。"""
+        self.last_player_count = server_data["online"]
+        self.last_player_list = extract_player_names(server_data["players"])
+        self.last_status = server_data["status"]
 
     def reset(self):
         """重置状态缓存到初始值。"""

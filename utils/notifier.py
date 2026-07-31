@@ -139,7 +139,10 @@ async def send_to_group(
             target.context, str(group_id), target.platform_id
         )
         chain = MessageChain([Plain(text=message)])
-        await target.context.send_message(umo, chain)
+        sent = await target.context.send_message(umo, chain)
+        if not sent:
+            _emit_log(f"未找到会话 {umo} 对应的平台，通知未发送", "ERROR", group_id, run_log)
+            return False
         _emit_log(f"✅ 已发送通知到会话 {umo}", "INFO", group_id, run_log)
         return True
     except Exception as e:

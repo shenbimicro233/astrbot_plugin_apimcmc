@@ -52,12 +52,13 @@ class MonitorService:
         self.context = context
         self.config_mgr = config_mgr
         cfg = config or MonitorConfig()
-        self.check_interval = int(cfg.check_interval) if cfg.check_interval else 10
+        self.check_interval = self._normalize_check_interval(cfg.check_interval)
         self.api_source = cfg.api_source
         self.mcmotdapi_host = cfg.mcmotdapi_host
         self.mcmotdapi_ssl = cfg.mcmotdapi_ssl
         self.simple_mode = cfg.simple_mode
         self._run_log_fn = run_log
+        self._run_log_buffer_only: RunLogFn | None = None
 
         self.task: asyncio.Task | None = None
         self._auto_start_task: asyncio.Task | None = None
@@ -65,6 +66,7 @@ class MonitorService:
 
         self._group_clients: dict = {}
         self._group_trackers: dict[str, ChangeTracker] = {}
+        self._group_targets: dict[str, tuple[str, int, str, str, str, bool | None]] = {}
         self._group_sessions: dict[str, str] = {}
 
         self.last_check_at: str = ""
@@ -94,6 +96,19 @@ class MonitorService:
         self._run_log_buffer_only = buffer_only
 
     @staticmethod
+    def _normalize_check_interval(value: object) -> int:
+        """将非法、零或负间隔回退为安全默认值。"""
+        if isinstance(value, bool):
+            return MonitorConfig.check_interval
+        if isinstance(value, float) and not value.is_integer():
+            return MonitorConfig.check_interval
+        try:
+            interval = int(value)
+        except (TypeError, ValueError):
+            return MonitorConfig.check_interval
+        return interval if interval > 0 else MonitorConfig.check_interval
+
+    @staticmethod
     def _fmt_api_source(source: str, host: str = "") -> str:
         if source == "mcmotdapi":
             return f"mcmotdapi({host or 'motd.minebbs.com'})"
@@ -116,6 +131,26 @@ class MonitorService:
         ssl = default_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
         return source, host, ssl
 
+    def _target_signature(
+        self,
+        cfg: GroupConfig,
+    ) -> tuple[str, int, str, str, str, bool | None]:
+        """返回会影响服务器查询结果的配置签名。"""
+        source, host, ssl = self._resolve_effective_cfg(
+            cfg,
+            self.api_source,
+            self.mcmotdapi_host,
+            self.mcmotdapi_ssl,
+        )
+        return (
+            cfg.server_ip,
+            cfg.server_port,
+            cfg.server_type,
+            source,
+            host,
+            ssl,
+        )
+
     # ── 运行时状态 ──
 
     async def _pop_client(self, group_id: str) -> None:
@@ -125,26 +160,35 @@ class MonitorService:
             await client.close()
 
     def rebuild_all_group_state(self) -> None:
-        configured = set(self.config_mgr.get_all().keys())
+        enabled = self.config_mgr.get_enabled_groups()
+        configured = set(enabled.keys())
         existing = set(self._group_clients.keys())
         for gid in existing - configured:
             self._group_clients.pop(gid, None)
             self._group_trackers.pop(gid, None)
+            self._group_targets.pop(gid, None)
 
-        for gid, cfg in self.config_mgr.get_enabled_groups().items():
+        for gid, cfg in enabled.items():
+            target_changed = (
+                gid in self._group_targets
+                and self._group_targets[gid] != self._target_signature(cfg)
+            )
             self._set_client(gid, cfg)
-            if gid not in self._group_trackers:
+            if gid not in self._group_trackers or target_changed:
                 self._group_trackers[gid] = ChangeTracker()
 
     async def rebuild_single_group_state(self, group_id: str) -> None:
+        old_target = self._group_targets.get(group_id)
         await self._pop_client(group_id)
         cfg = self.config_mgr.get(group_id)
         if cfg and cfg.enabled and cfg.is_valid():
+            new_target = self._target_signature(cfg)
             self._set_client(group_id, cfg)
-            if group_id not in self._group_trackers:
+            if group_id not in self._group_trackers or old_target != new_target:
                 self._group_trackers[group_id] = ChangeTracker()
         else:
             self._group_trackers.pop(group_id, None)
+            self._group_targets.pop(group_id, None)
 
     def _set_client(self, group_id: str, cfg: GroupConfig) -> None:
         effective_source, effective_host, effective_ssl = self._resolve_effective_cfg(
@@ -152,6 +196,7 @@ class MonitorService:
         )
         source_display = self._fmt_api_source(effective_source, effective_host)
         self._log("INFO", f"群 {group_id} 已初始化客户端 | API: {source_display}", group_id)
+        self._group_targets[group_id] = self._target_signature(cfg)
         self._group_clients[group_id] = create_mc_client(
             api_source=effective_source,
             server_ip=cfg.server_ip,
@@ -235,6 +280,7 @@ class MonitorService:
 
         self._group_clients.clear()
         self._group_trackers.clear()
+        self._group_targets.clear()
         self._group_sessions.clear()
 
     # ── 监控循环 ──
@@ -321,6 +367,7 @@ class MonitorService:
 
             should_send, change_msg = tracker.check_changes(server_data)
             if not should_send:
+                tracker.commit(server_data)
                 self._log("INFO", f"群 {group_id} 状态无变化", group_id)
                 return "ok"
 
@@ -373,7 +420,10 @@ class MonitorService:
                 final_msg,
                 run_log=self._log_buffer_only,
             )
-            return "changed" if sent else "failed"
+            if not sent:
+                return "failed"
+            tracker.commit(server_data)
+            return "changed"
 
         except Exception as e:
             self._log("ERROR", f"检查群 {group_id} 时出错: {e}", group_id)
