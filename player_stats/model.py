@@ -7,7 +7,7 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Final, TypeAlias
+from typing import Any, Final, Literal, TypeAlias
 
 BUCKET_MINUTES: Final = 15
 BUCKETS_PER_HOUR: Final = 60 // BUCKET_MINUTES
@@ -16,7 +16,17 @@ SLOT_SECONDS: Final = BUCKET_MINUTES * 60
 WINDOW_DURATION: Final = timedelta(hours=24)
 WINDOW_SLOT_COUNT: Final = int(WINDOW_DURATION.total_seconds() // SLOT_SECONDS)
 
-TargetSignature: TypeAlias = tuple[str, int, str, str, str, bool | None]
+LegacyTargetSignature: TypeAlias = tuple[str, int, str, str, str, bool | None]
+SrvEnabledTargetSignature: TypeAlias = tuple[
+    str,
+    int | None,
+    str,
+    str,
+    str,
+    bool | None,
+    Literal[True],
+]
+TargetSignature: TypeAlias = LegacyTargetSignature | SrvEnabledTargetSignature
 
 
 def to_local_datetime(value: datetime | str | None = None) -> datetime:
@@ -107,25 +117,55 @@ def normalize_count(value: object, field_name: str) -> int:
 def normalize_target_signature(signature: Sequence[object]) -> TargetSignature:
     """Validate and normalize the monitor's effective target signature."""
 
-    if isinstance(signature, (str, bytes)) or len(signature) != 6:
-        raise ValueError("target signature must contain six values")
+    if isinstance(signature, (str, bytes)) or not isinstance(signature, Sequence):
+        raise TypeError("target signature must be a sequence")
+    if len(signature) not in (6, 7):
+        raise ValueError("target signature must contain six or seven values")
 
-    server_ip = str(signature[0]).strip()
-    server_type = str(signature[2]).strip()
-    api_source = str(signature[3]).strip()
-    api_host = str(signature[4]).strip()
+    server_ip_value = signature[0]
+    server_type_value = signature[2]
+    api_source_value = signature[3]
+    api_host_value = signature[4]
+    if not (
+        isinstance(server_ip_value, str)
+        and isinstance(server_type_value, str)
+        and isinstance(api_source_value, str)
+        and isinstance(api_host_value, str)
+    ):
+        raise TypeError("target signature text fields must be strings")
+
+    server_ip = server_ip_value.strip()
+    server_type = server_type_value.strip()
+    api_source = api_source_value.strip()
+    api_host = api_host_value.strip()
     if not server_ip or not server_type or not api_source:
         raise ValueError("target signature contains an empty required value")
-
-    port = normalize_count(signature[1], "server_port")
-    if not 1 <= port <= 65535:
-        raise ValueError("server_port must be between 1 and 65535")
 
     ssl = signature[5]
     if ssl is not None and not isinstance(ssl, bool):
         raise TypeError("mcmotdapi_ssl must be a boolean or null")
 
-    return server_ip, port, server_type, api_source, api_host, ssl
+    if len(signature) == 6:
+        port = normalize_count(signature[1], "server_port")
+        if not 1 <= port <= 65535:
+            raise ValueError("server_port must be between 1 and 65535")
+        return server_ip, port, server_type, api_source, api_host, ssl
+
+    srv_enabled = signature[6]
+    if type(srv_enabled) is not bool:
+        raise TypeError("mcmotdapi_enable_srv must be a boolean")
+    if not srv_enabled:
+        raise ValueError("seven-value target signatures require mcmotdapi_enable_srv=true")
+    if api_source != "mcmotdapi" or server_type != "java":
+        raise ValueError("SRV-enabled target signatures require mcmotdapi Java")
+    raw_port = signature[1]
+    if raw_port is None:
+        port = None
+    else:
+        port = normalize_count(raw_port, "server_port")
+        if not 1 <= port <= 65535:
+            raise ValueError("server_port must be between 1 and 65535")
+    return server_ip, port, server_type, api_source, api_host, ssl, True
 
 
 def target_id_for_signature(signature: Sequence[object]) -> str:

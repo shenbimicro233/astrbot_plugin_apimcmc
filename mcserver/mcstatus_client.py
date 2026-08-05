@@ -6,75 +6,117 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
-from typing import Optional
+from urllib.parse import quote
 
 import aiohttp
+from yarl import URL
 
-from .base_client import BaseMcClient
+from .base_client import BaseMcClient, format_server_address, normalize_player_counts
+
+
+_MCSTATUS_BASE_URL = URL("https://api.mcstatus.io")
+
+
+def _build_status_url(server_type: str, server_ip: str, server_port: int) -> URL:
+    """Build a revision-2 mcstatus URL with an encoded address path segment.
+
+    Args:
+        server_type: Requested Minecraft edition.
+        server_ip: Configured domain, IPv4 address, or IPv6 literal.
+        server_port: Configured Minecraft port.
+
+    Returns:
+        The request URL without query parameters.
+    """
+    address = format_server_address(server_ip, server_port)
+    encoded_type = quote(server_type, safe="")
+    encoded_address = quote(address, safe=":")
+    return _MCSTATUS_BASE_URL.with_path(
+        f"/v2/status/{encoded_type}/{encoded_address}",
+        encoded=True,
+    )
 
 
 class McStatusClient(BaseMcClient):
     """Minecraft 服务器查询客户端 — mcstatus.io 源。"""
 
-    async def _fetch_raw_data(self) -> Optional[dict]:
+    async def _fetch_raw_data(self) -> dict | None:
         """调用 mcstatus.io API，返回原始 JSON 数据。"""
         if not self.server_ip or not self.server_port:
             return None
 
-        api_url = (
-            f"https://api.mcstatus.io/v2/status/{self.server_type}/"
-            f"{self.server_ip}:{self.server_port}"
-        )
+        params = {"timeout": "5"}
+        if self.server_type == "java":
+            params["query"] = "true"
 
         try:
+            api_url = _build_status_url(
+                self.server_type,
+                self.server_ip,
+                self.server_port,
+            )
             session = self._get_session()
-            async with session.get(api_url) as response:
+            async with session.get(api_url, params=params) as response:
                 if response.status != 200:
                     return None
                 try:
-                    return await response.json()
-                except json.JSONDecodeError:
+                    data = await response.json()
+                except (aiohttp.ClientError, TypeError, ValueError):
                     return None
-        except (aiohttp.ClientError, asyncio.TimeoutError):
+                return data if isinstance(data, dict) else None
+        except (aiohttp.ClientError, asyncio.TimeoutError, TypeError, ValueError):
             return None
 
-    def _parse_raw_data(self, data: dict) -> dict:
+    def _parse_raw_data(self, data: dict) -> dict | None:
         """将 mcstatus.io API 原始 JSON 解析为结构化字典。"""
-        online = data.get("online", False)
-        server_status = "online" if online else "offline"
+        online = data.get("online")
+        if not isinstance(online, bool):
+            return None
 
-        hostname = data.get("hostname", "")
-        server_name = hostname if hostname else f"{self.server_ip}:{self.server_port}"
-
-        motd_info = data.get("motd", {})
-        motd_clean = ""
-        if isinstance(motd_info, dict):
-            motd_clean = motd_info.get("clean", "") or motd_info.get("raw", "")
-        elif isinstance(motd_info, str):
-            motd_clean = motd_info
-
-        version_info = data.get("version", {})
-        if isinstance(version_info, dict):
-            version = version_info.get("name_clean", "未知版本")
-            protocol = version_info.get("protocol", "未知")
-        else:
-            version = str(version_info) if version_info else "未知版本"
-            protocol = "未知"
-
-        players_info = data.get("players", {})
-        if isinstance(players_info, dict):
-            online_players = players_info.get("online", 0)
-            max_players = players_info.get("max", 0)
+        if online:
+            counts = normalize_player_counts(data.get("players"))
+            if counts is None:
+                return None
+            online_players, max_players = counts
+            players_info = data["players"]
             player_list = players_info.get("list", [])
+            if not isinstance(player_list, list):
+                player_list = []
         else:
             online_players = 0
             max_players = 0
             player_list = []
 
+        server_status = "online" if online else "offline"
+
+        host = data.get("host")
+        server_name = (
+            host
+            if isinstance(host, str) and host
+            else format_server_address(self.server_ip, self.server_port)
+        )
+
+        motd_info = data.get("motd", {})
+        motd_clean = ""
+        if isinstance(motd_info, dict):
+            raw_motd = motd_info.get("clean") or motd_info.get("raw")
+            motd_clean = raw_motd if isinstance(raw_motd, str) else ""
+        elif isinstance(motd_info, str):
+            motd_clean = motd_info
+
+        version_info = data.get("version", {})
+        if isinstance(version_info, dict):
+            raw_version = version_info.get("name_clean")
+            version = raw_version if isinstance(raw_version, str) and raw_version else "未知版本"
+            protocol = version_info.get("protocol", "未知")
+        else:
+            version = str(version_info) if version_info else "未知版本"
+            protocol = "未知"
+
         map_info = data.get("map", {})
-        server_map = map_info.get("name", "未知") if isinstance(map_info, dict) else "未知"
+        raw_map = map_info.get("name") if isinstance(map_info, dict) else None
+        server_map = raw_map if isinstance(raw_map, str) and raw_map else "未知"
 
         return {
             "status": server_status,

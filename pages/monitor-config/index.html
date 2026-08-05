@@ -319,6 +319,8 @@
     .search-box { max-width: 100%; }
     .cards-grid { grid-template-columns: 1fr; }
     .log-actions { width: 100%; justify-content: flex-start; }
+    .form-row { flex-direction: column; gap: 0; }
+    .form-row .form-group { width: 100%; }
   }
 </style>
 </head>
@@ -429,9 +431,9 @@
           <div class="form-error" id="err_ip">请输入服务器地址</div>
         </div>
         <div class="form-group" style="max-width: 140px;">
-          <label for="f_port">端口 <span class="req">*</span></label>
+          <label for="f_port">端口 <span id="f_port_required" class="req">*</span></label>
           <input id="f_port" type="number" placeholder="19132" value="19132" required>
-          <div class="form-error" id="err_port">请输入端口</div>
+          <div class="form-error" id="err_port">请输入有效端口</div>
         </div>
       </div>
       <div class="form-row">
@@ -468,6 +470,14 @@
             <input id="f_mcmotdapi_ssl" type="checkbox" checked>
             <label for="f_mcmotdapi_ssl">启用 HTTPS</label>
           </div>
+        </div>
+        <div id="mcmotdapi_srv_group" class="form-group" style="display:none;">
+          <label for="f_mcmotdapi_enable_srv">Java SRV 解析</label>
+          <select id="f_mcmotdapi_enable_srv">
+            <option value="">继承全局设置</option>
+            <option value="true">启用</option>
+            <option value="false">禁用</option>
+          </select>
         </div>
       </div>
 

@@ -15,7 +15,11 @@ from astrbot.api.web import error_response, json_response, request
 from ..mcserver.formatter import CUSTOM_FIELD_ORDER
 from ..monitor.run_log import DEFAULT_RUN_LOG_MAX, RunLogBuffer
 from ..monitor.service import MonitorService
-from ..utils.group_config import DEFAULT_GROUP_CONFIG, ConfigManager
+from ..utils.group_config import (
+    DEFAULT_GROUP_CONFIG,
+    ConfigManager,
+    is_srv_port_optional,
+)
 
 RunLogFn = Callable[[str, str, str | None], None]
 
@@ -87,6 +91,19 @@ class WebApiHandler:
             raise ValueError("server_port 必须是 1 到 65535 的整数")
         return port
 
+    @classmethod
+    def _parse_optional_port(
+        cls,
+        value: object,
+        *,
+        allow_empty: bool,
+    ) -> int | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if allow_empty:
+                return None
+            raise ValueError("server_port 必须是 1 到 65535 的整数")
+        return cls._parse_port(value)
+
     @staticmethod
     def _parse_bool(
         body: dict,
@@ -133,6 +150,14 @@ class WebApiHandler:
         if api_source not in ALLOWED_API_SOURCES:
             raise ValueError("api_source 必须为空、mcstatus 或 mcmotdapi")
 
+        enable_srv = cls._parse_bool(
+            body,
+            "mcmotdapi_enable_srv",
+            default=None,
+        )
+        allow_empty_port = is_srv_port_optional(server_type, api_source, enable_srv)
+        port_value = body.get("server_port", DEFAULT_GROUP_CONFIG["server_port"])
+
         custom_fields = body.get("custom_fields")
         if custom_fields is not None:
             if not isinstance(custom_fields, list) or any(
@@ -151,8 +176,9 @@ class WebApiHandler:
             )
             or DEFAULT_GROUP_CONFIG["name"],
             "server_ip": server_ip,
-            "server_port": cls._parse_port(
-                body.get("server_port", DEFAULT_GROUP_CONFIG["server_port"])
+            "server_port": cls._parse_optional_port(
+                port_value,
+                allow_empty=allow_empty_port,
             ),
             "server_type": server_type,
             "enabled": cls._parse_bool(
@@ -168,6 +194,7 @@ class WebApiHandler:
                 "mcmotdapi_ssl",
                 default=None,
             ),
+            "mcmotdapi_enable_srv": enable_srv,
             "simple_mode": cls._parse_bool(body, "simple_mode", default=None),
             "custom_mode": cls._parse_bool(body, "custom_mode", default=None),
             "custom_fields": custom_fields,

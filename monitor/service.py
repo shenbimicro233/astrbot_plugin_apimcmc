@@ -14,14 +14,16 @@ from typing import Callable
 from astrbot.api.star import Context
 
 from ..mcserver import create_mc_client
+from ..mcserver.base_client import format_server_address
 from ..mcserver.formatter import (
     format_server_info,
     format_server_info_custom,
     format_server_info_simple,
 )
+from ..player_stats.model import TargetSignature
 from ..player_stats.store import PlayerStatsStore
 from ..utils import GroupTarget, build_group_session, send_to_group
-from ..utils.group_config import ConfigManager, GroupConfig
+from ..utils.group_config import ConfigManager, GroupConfig, is_srv_port_optional
 from ..utils.hitokoto import get_hitokoto
 from .tracker import ChangeTracker
 
@@ -36,6 +38,7 @@ class MonitorConfig:
     api_source: str = "mcstatus"
     mcmotdapi_host: str = "motd.minebbs.com"
     mcmotdapi_ssl: bool = True
+    mcmotdapi_enable_srv: bool = True
     simple_mode: bool = False
 
 
@@ -58,6 +61,7 @@ class MonitorService:
         self.api_source = cfg.api_source
         self.mcmotdapi_host = cfg.mcmotdapi_host
         self.mcmotdapi_ssl = cfg.mcmotdapi_ssl
+        self.mcmotdapi_enable_srv = cfg.mcmotdapi_enable_srv
         self.simple_mode = cfg.simple_mode
         self._run_log_fn = run_log
         self._run_log_buffer_only: RunLogFn | None = None
@@ -69,7 +73,7 @@ class MonitorService:
 
         self._group_clients: dict = {}
         self._group_trackers: dict[str, ChangeTracker] = {}
-        self._group_targets: dict[str, tuple[str, int, str, str, str, bool | None]] = {}
+        self._group_targets: dict[str, TargetSignature] = {}
         self._group_sessions: dict[str, str] = {}
 
         self.last_check_at: str = ""
@@ -136,17 +140,69 @@ class MonitorService:
         ssl = default_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
         return source, host, ssl
 
-    def _target_signature(
+    def resolve_effective_config(
         self,
         cfg: GroupConfig,
-    ) -> tuple[str, int, str, str, str, bool]:
-        """返回会影响服务器查询结果的配置签名。"""
+    ) -> tuple[str, str, bool, bool]:
+        """Resolve the group query policy against global defaults."""
+
         source, host, ssl = self._resolve_effective_cfg(
             cfg,
             self.api_source,
             self.mcmotdapi_host,
             self.mcmotdapi_ssl,
         )
+        group_enable_srv = getattr(cfg, "mcmotdapi_enable_srv", None)
+        enable_srv = self.mcmotdapi_enable_srv if group_enable_srv is None else group_enable_srv
+        return source, host, ssl, enable_srv
+
+    def format_effective_api_source(self, cfg: GroupConfig) -> str:
+        """Return the resolved API label used in monitor logs and commands."""
+
+        source, host, _, enable_srv = self.resolve_effective_config(cfg)
+        display = self._fmt_api_source(source, host)
+        if source == "mcmotdapi" and cfg.server_type == "java":
+            srv_state = "enabled" if enable_srv else "disabled"
+            return f"{display} | Java SRV: {srv_state}"
+        return display
+
+    def is_query_config_valid(self, cfg: GroupConfig) -> bool:
+        """Validate a group after global source and SRV policy are resolved."""
+
+        has_query_identity = getattr(cfg, "has_query_identity", cfg.is_valid)
+        if not has_query_identity():
+            return False
+        source, _, _, enable_srv = self.resolve_effective_config(cfg)
+        if cfg.server_port is None:
+            return is_srv_port_optional(cfg.server_type, source, enable_srv)
+        return cfg.is_valid()
+
+    def _get_query_enabled_groups(self) -> dict[str, GroupConfig]:
+        """Return enabled groups that are valid under the effective policy."""
+
+        return {
+            group_id: cfg
+            for group_id, cfg in self.config_mgr.get_enabled_groups().items()
+            if self.is_query_config_valid(cfg)
+        }
+
+    def _target_signature(
+        self,
+        cfg: GroupConfig,
+    ) -> TargetSignature:
+        """返回会影响服务器查询结果的配置签名。"""
+        source, host, ssl, enable_srv = self.resolve_effective_config(cfg)
+        if source == "mcmotdapi" and cfg.server_type == "java" and enable_srv is True:
+            return (
+                cfg.server_ip,
+                cfg.server_port,
+                cfg.server_type,
+                source,
+                host,
+                ssl,
+                True,
+            )
+        assert cfg.server_port is not None
         return (
             cfg.server_ip,
             cfg.server_port,
@@ -159,11 +215,11 @@ class MonitorService:
     def get_target_signature(
         self,
         group_id: str,
-    ) -> tuple[str, int, str, str, str, bool] | None:
+    ) -> TargetSignature | None:
         """Return the current group's canonical effective target signature."""
 
         cfg = self.config_mgr.get(str(group_id))
-        return self._target_signature(cfg) if cfg else None
+        return self._target_signature(cfg) if cfg and self.is_query_config_valid(cfg) else None
 
     async def _delete_group_stats(self, group_id: str) -> None:
         if self.stats_store is None:
@@ -201,7 +257,7 @@ class MonitorService:
             await client.close()
 
     def rebuild_all_group_state(self) -> None:
-        enabled = self.config_mgr.get_enabled_groups()
+        enabled = self._get_query_enabled_groups()
         configured = set(enabled.keys())
         existing = set(self._group_clients.keys())
         for gid in existing - configured:
@@ -221,7 +277,7 @@ class MonitorService:
         old_target = self._group_targets.get(group_id)
         await self._pop_client(group_id)
         cfg = self.config_mgr.get(group_id)
-        if cfg and cfg.enabled and cfg.is_valid():
+        if cfg and cfg.enabled and self.is_query_config_valid(cfg):
             new_target = self._target_signature(cfg)
             if old_target is not None and old_target != new_target:
                 # A changed target must not leave the previous server's
@@ -238,13 +294,10 @@ class MonitorService:
                 await self._delete_group_stats(group_id)
 
     def _set_client(self, group_id: str, cfg: GroupConfig) -> None:
-        effective_source, effective_host, effective_ssl = self._resolve_effective_cfg(
-            cfg,
-            self.api_source,
-            self.mcmotdapi_host,
-            self.mcmotdapi_ssl,
+        effective_source, effective_host, effective_ssl, effective_enable_srv = (
+            self.resolve_effective_config(cfg)
         )
-        source_display = self._fmt_api_source(effective_source, effective_host)
+        source_display = self.format_effective_api_source(cfg)
         self._log("INFO", f"群 {group_id} 已初始化客户端 | API: {source_display}", group_id)
         self._group_targets[group_id] = self._target_signature(cfg)
         self._group_clients[group_id] = create_mc_client(
@@ -255,6 +308,7 @@ class MonitorService:
             server_name=cfg.name,
             mcmotdapi_host=effective_host,
             mcmotdapi_ssl=effective_ssl,
+            mcmotdapi_enable_srv=effective_enable_srv,
         )
 
     def cache_group_session(self, group_id: str | None, umo: str | None) -> str | None:
@@ -342,12 +396,12 @@ class MonitorService:
         self._log(
             "INFO",
             f"监控循环已启动 | 间隔 {self.check_interval}s | "
-            f"当前启用群数: {len(self.config_mgr.get_enabled_groups())}",
+            f"当前启用群数: {len(self._get_query_enabled_groups())}",
         )
         while not self._stopped:
             loop_start = time.monotonic()
 
-            enabled = self.config_mgr.get_enabled_groups()
+            enabled = self._get_query_enabled_groups()
             if not enabled:
                 self._log("INFO", "本轮监控：无已启用的群配置，跳过")
                 self.last_check_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -404,15 +458,9 @@ class MonitorService:
             if cfg is None:
                 self._log("WARN", f"Group {group_id} configuration is missing; skipping", group_id)
                 return "skipped"
-            target = f"{cfg.server_ip}:{cfg.server_port}" if cfg else "?"
+            target = format_server_address(cfg.server_ip, cfg.server_port) if cfg else "?"
             name = cfg.name if cfg else ""
-            effective_source, effective_host, _ = self._resolve_effective_cfg(
-                cfg,
-                self.api_source,
-                self.mcmotdapi_host,
-                self.mcmotdapi_ssl,
-            )
-            source_display = self._fmt_api_source(effective_source, effective_host)
+            source_display = self.format_effective_api_source(cfg)
             self._log(
                 "INFO",
                 f"正在检查群 {group_id} | {name} ({target}) | API: {source_display}",

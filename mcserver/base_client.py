@@ -5,6 +5,65 @@ from __future__ import annotations
 import aiohttp
 
 
+def normalize_server_host(server_ip: str) -> str:
+    """Remove IPv6 URL brackets from a configured server host.
+
+    The configured target may use either raw or bracketed IPv6. Query-string
+    parameters carry the raw address, whereas route addresses add brackets
+    again when needed.
+    """
+
+    if server_ip.startswith("[") and server_ip.endswith("]"):
+        return server_ip[1:-1]
+    return server_ip
+
+
+def format_server_address(server_ip: str, server_port: int | None) -> str:
+    """Return an unambiguous host-and-port address for an upstream route.
+
+    Args:
+        server_ip: Configured domain, IPv4 address, or IPv6 literal.
+        server_port: Configured Minecraft port, when specified.
+
+    Returns:
+        An address suitable for use as one upstream path segment.
+
+    Raw IPv6 must be bracketed, while an already bracketed IPv6 literal must
+    not receive a second pair of brackets.
+    """
+    host = normalize_server_host(server_ip)
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{host}:{server_port}" if server_port is not None else host
+
+
+def normalize_player_counts(players: object) -> tuple[int, int] | None:
+    """Normalize an online response's aggregate player counts.
+
+    Args:
+        players: The parsed upstream ``players`` object.
+
+    Returns:
+        A non-negative ``(online, maximum)`` pair, or ``None`` when the
+        required online count is malformed.
+
+    A missing capacity is represented as zero because both APIs can omit it.
+    """
+    if not isinstance(players, dict):
+        return None
+
+    online = players.get("online")
+    if isinstance(online, bool) or not isinstance(online, int) or online < 0:
+        return None
+
+    maximum = players.get("max")
+    if maximum is None:
+        return online, 0
+    if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 0:
+        return None
+    return online, maximum
+
+
 class BaseMcClient:
     """共享 aiohttp session 管理的基类。
 
@@ -14,7 +73,7 @@ class BaseMcClient:
     def __init__(
         self,
         server_ip: str,
-        server_port: int,
+        server_port: int | None,
         server_type: str = "bedrock",
         server_name: str = "Minecraft服务器",
     ):
@@ -49,15 +108,20 @@ class BaseMcClient:
 
     async def get_server_info(self) -> dict | None:
         """获取并解析服务器信息，返回结构化字典，失败时返回 None。"""
-        data = await self._fetch_raw_data()
-        if data is None:
+        try:
+            data = await self._fetch_raw_data()
+            if not isinstance(data, dict):
+                return None
+            parsed = self._parse_raw_data(data)
+        except Exception:
+            # External transport and normalization share one None boundary.
             return None
-        return self._parse_raw_data(data)
+        return parsed if isinstance(parsed, dict) else None
 
     async def _fetch_raw_data(self) -> dict | None:
         """子类需实现：调用 API 返回原始 JSON 数据。"""
         raise NotImplementedError
 
-    def _parse_raw_data(self, data: dict) -> dict:
+    def _parse_raw_data(self, data: dict) -> dict | None:
         """子类需实现：将原始 JSON 解析为结构化字典。"""
         raise NotImplementedError

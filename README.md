@@ -6,7 +6,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 当前版本 | `v1.1.0` |
+| 当前版本 | `v1.1.1` |
 | AstrBot | `>=4.26.0` |
 | 主要适配平台 | `aiocqhttp` |
 
@@ -16,6 +16,7 @@
 
 - 为多个 QQ 群分别保存服务器地址、版本类型、查询源和通知格式。
 - 支持 Java 版与基岩版服务器。
+- Java 版支持使用依赖 DNS SRV 记录的常用公开服务器域名。
 - 支持 `mcstatus.io` 和 `mcmotdapi`，每个群可以继承全局设置或单独选择。
 - 仅在首次检测、服务器上下线或在线人数变化时发送状态通知。
 - 支持完整、精简和自定义三种通知格式，并在 WebUI 中实时预览。
@@ -27,7 +28,7 @@
 1. 在 AstrBot WebUI 中安装并启用插件。AstrBot 会自动检查并安装插件所需的运行依赖。
 2. 打开「插件配置」，设置检查间隔、是否自动启动监控以及默认查询源。
 3. 打开插件页「Minecraft服务器监控」，点击「添加配置」。
-4. 填写 QQ 群号、服务器 IP、端口和服务器类型，按需选择查询源与消息格式。
+4. 填写 QQ 群号、服务器 IP、端口和服务器类型，按需选择查询源与消息格式。Java 版使用 `mcmotdapi` 且本群明确启用 SRV 解析时，端口可留空。
 5. 保存配置。若没有开启「自动启动监控」，请使用 `/start_server_monitor` 手动启动监控。
 
 ## 配置说明
@@ -43,6 +44,7 @@
 | API查询源 | 选择默认的服务器状态查询服务 | 默认 `mcstatus` |
 | mcmotdapi 服务地址 | 使用 `mcmotdapi` 时连接的服务地址 | 默认 `motd.minebbs.com` |
 | mcmotdapi 启用 HTTPS | 使用 `mcmotdapi` 时是否通过 HTTPS 连接 | 默认开启；内网自部署可关闭 |
+| mcmotdapi Java SRV 解析 | Java 版使用 `mcmotdapi` 时是否解析 DNS SRV 记录 | 默认开启；不影响基岩版或 `mcstatus.io` |
 | 简化消息格式 | 群配置未单独指定时，默认使用简短通知 | 默认关闭 |
 | 统计图文字样式 | 选择普通中文（Fusion Pixel）、附魔台文字或系统/配置字体 | 默认「普通中文（Fusion Pixel）」；全部图表文字为中文并只使用内置 Fusion Pixel；附魔台文字只转换英文字母 |
 | 统计图备用字体候选 | 按顺序填写系统字体名称或字体文件路径 | 默认留空；选择「系统/配置字体」或内置字体不可用时自动尝试跨平台字体 |
@@ -56,12 +58,13 @@
 | QQ 群号 | 接收通知并使用群指令的目标群 | 必填 |
 | 服务器名称 | 查询结果和状态通知中显示的名称 | 默认「Minecraft服务器」；统计图不显示服务器名 |
 | 服务器 IP | Minecraft 服务器的 IP 或域名 | 必填 |
-| 端口 | Minecraft 服务器端口 | 默认 `19132` |
+| 端口 | Minecraft 服务器端口 | 默认 `19132`；Java 版选择 `mcmotdapi` 并明确启用 SRV 解析时可留空 |
 | 服务器类型 | 选择「基岩版 (Bedrock)」或「Java 版」 | 默认基岩版 |
 | API 查询源 | 选择「全局默认」「mcstatus.io」或「mcmotdapi」 | 默认继承全局设置 |
 | 启用监控 | 决定该群是否参与定时检查 | 默认开启 |
 | mcmotdapi 服务地址 | 当前群使用的服务地址 | 仅选择 `mcmotdapi` 时显示；留空继承全局设置 |
 | 启用 HTTPS | 当前群连接 `mcmotdapi` 时是否使用 HTTPS | 仅选择 `mcmotdapi` 时显示 |
+| Java SRV 解析 | 当前群的 Java `mcmotdapi` SRV 解析策略 | 仅 Java 版且选择 `mcmotdapi` 时显示；可选择继承全局、启用或禁用 |
 | 消息格式 | 选择「完整」「精简」或「自定义」 | 默认完整 |
 
 选择「自定义」后，可以勾选以下内容：
@@ -94,6 +97,7 @@ WebUI 会实时显示消息预览。通知中的字段顺序固定，不受勾�
 
 - 监控是一个全局任务，会并发检查所有已启用且配置完整的群。
 - 第一次成功检查会发送初始状态；之后只在服务器上下线或在线人数发生变化时发送通知。
+- 玩家变动通知只根据在线总人数判断，仅报告有玩家上线或下线；不会根据 API 返回的玩家样本推断或点名具体玩家。
 - `/查询` 会立即请求服务器状态，但不会代替定时监控任务。
 - 在线统计复用定时监控的成功查询，不会额外请求服务器或 API。
 - 每个 15 分钟时段只保留第一次成功观测，滚动窗口最多保留 96 个观测点。
@@ -111,10 +115,10 @@ WebUI 会实时显示消息预览。通知中的字段顺序固定，不受勾�
 
 | WebUI 选项 | 说明 | 默认地址 |
 | --- | --- | --- |
-| `mcstatus.io` | 公共 Minecraft 状态查询接口，无需自行部署 | `api.mcstatus.io` |
-| `mcmotdapi` | 可使用自部署服务，也可使用默认公共实例 | `motd.minebbs.com` |
+| `mcstatus.io` | 公共 Minecraft 状态查询接口；Java 版会自动处理 SRV 记录 | `api.mcstatus.io` |
+| `mcmotdapi` | 可使用自部署服务，也可使用默认公共实例；Java SRV 解析可配置 | `motd.minebbs.com` |
 
-每群「API 查询源」选择「全局默认」时，会继承全局「API查询源」及相关连接设置。
+每群「API 查询源」选择「全局默认」时，会继承全局「API查询源」及相关连接设置。Java 版选择 `mcmotdapi` 时，还可单独覆盖全局的 SRV 解析策略；基岩版不会使用 SRV 解析。本群明确选择「启用」SRV 解析后，端口可留空并由查询服务解析；选择继承或禁用时仍需填写端口。
 
 ## 使用须知
 
@@ -129,7 +133,7 @@ WebUI 会实时显示消息预览。通知中的字段顺序固定，不受勾�
 
 ### 自动监控没有启动
 
-检查全局「自动启动监控」是否开启，并确认至少有一条已开启「启用监控」且 QQ 群号、服务器 IP、端口填写完整的群配置。也可以由管理员发送 `/start_server_monitor` 手动启动。
+检查全局「自动启动监控」是否开启，并确认至少有一条已开启「启用监控」且 QQ 群号、服务器 IP 填写完整的群配置。除本群明确启用 SRV 解析的 Java `mcmotdapi` 配置外，还需要填写端口。也可以由管理员发送 `/start_server_monitor` 手动启动。
 
 ### `/在线统计` 没有返回图片
 
@@ -160,6 +164,6 @@ AstrBot 正常情况下会自动安装运行依赖。若自动恢复仍失败，
 
 统计图的 Minecraft 风格草地方框由 Pillow 绘制。布局参考 [8kateam/astrbot_plugin_picmcmotd](https://github.com/8kateam/astrbot_plugin_picmcmotd)，本插件未引入该项目的代码或二进制资产。
 
-统计图内置字体源自 [Monocraft](https://github.com/IdreesInc/Monocraft)（Copyright (c) 2022 Idrees Hassan）和 [fusion-pixel-font](https://github.com/TakWolf/fusion-pixel-font)（Copyright (c) 2022 TakWolf），遵循 [SIL Open Font License 1.1](https://openfontlicense.org/) 协议分发；完整许可文本保存在 `player_stats/assets/fonts/`。
+统计图内置字体源自 [Monocraft](https://github.com/IdreesInc/Monocraft)（Copyright (c) 2022 Idrees Hassan）和 [fusion-pixel-font](https://github.com/TakWolf/fusion-pixel-font)（Copyright (c) 2022 TakWolf），遵循 [SIL Open Font License 1.1](https://openfontlicense.org/) 协议分发；完整许可文本随插件一并提供。
 
 除上述内容外，本插件代码采用 [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html) 或更高版本授权。

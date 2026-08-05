@@ -241,7 +241,9 @@ function createCardElement(gid, cfg) {
   }
 
   const addrEl = bind('address');
-  if (addrEl) addrEl.textContent = `${cfg.server_ip}:${cfg.server_port}`;
+  if (addrEl) addrEl.textContent = cfg.server_port == null
+    ? cfg.server_ip
+    : `${cfg.server_ip}:${cfg.server_port}`;
 
   const typeBadge = bind('type-badge');
   if (typeBadge) {
@@ -373,7 +375,7 @@ function openAddModal() {
   state.set('editingGid', null);
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
-  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, custom_mode: false, custom_fields: [], api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true });
+  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, custom_mode: false, custom_fields: [], api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true, mcmotdapi_enable_srv: null });
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
@@ -396,6 +398,7 @@ function editConfig(gid) {
     custom_mode: cfg.custom_mode === true, custom_fields: cfg.custom_fields || [],
     api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
     mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
+    mcmotdapi_enable_srv: typeof cfg.mcmotdapi_enable_srv === 'boolean' ? cfg.mcmotdapi_enable_srv : null,
   });
   const fg = $('f_group_id');
   if (fg) fg.disabled = true;
@@ -413,8 +416,28 @@ function closeModal() {
 
 function toggleMcmotdapiConfig() {
   const show = $('f_api_source') && $('f_api_source').value === 'mcmotdapi';
+  const showSrv = show && $('f_type') && $('f_type').value === 'java';
   const grp = $('mcmotdapi_config_group');
   if (grp) grp.style.display = show ? '' : 'none';
+  const srvGrp = $('mcmotdapi_srv_group');
+  if (srvGrp) srvGrp.style.display = showSrv ? '' : 'none';
+  updatePortRequirement();
+}
+
+function canOmitPortForSrv() {
+  return $('f_api_source').value === 'mcmotdapi'
+    && $('f_type').value === 'java'
+    && $('f_mcmotdapi_enable_srv').value === 'true';
+}
+
+function updatePortRequirement() {
+  const port = $('f_port');
+  const required = $('f_port_required');
+  if (!port || !required) return;
+  const optional = canOmitPortForSrv();
+  port.required = !optional;
+  port.placeholder = optional ? 'SRV 自动解析（可留空）' : '19132';
+  required.style.display = optional ? 'none' : '';
 }
 
 function clearFormErrors() {
@@ -443,6 +466,12 @@ function setFormValues(v) {
   if (f_en) f_en.checked = v.enabled !== false;
   const f_ssl = $('f_mcmotdapi_ssl');
   if (f_ssl) f_ssl.checked = v.mcmotdapi_ssl !== false;
+  const f_srv = $('f_mcmotdapi_enable_srv');
+  if (f_srv) {
+    f_srv.value = v.mcmotdapi_enable_srv === true
+      ? 'true'
+      : (v.mcmotdapi_enable_srv === false ? 'false' : '');
+  }
   const f_as = $('f_api_source');
   if (f_as) f_as.value = v.api_source || '';
 
@@ -693,12 +722,13 @@ function bindFormSubmit() {
     const groupId = ($('f_group_id').value || '').trim();
     const ip = ($('f_ip').value || '').trim();
     const portRaw = ($('f_port').value || '').trim();
-    const port = parseInt(portRaw, 10);
+    const port = portRaw ? parseInt(portRaw, 10) : null;
+    const portOptional = canOmitPortForSrv();
 
     let hasError = false;
     if (!groupId) { setFieldError('err_group_id', true); hasError = true; }
     if (!ip) { setFieldError('err_ip', true); hasError = true; }
-    if (!portRaw || isNaN(port) || port <= 0 || port > 65535) { setFieldError('err_port', true); hasError = true; }
+    if ((!portOptional && !portRaw) || (portRaw && (isNaN(port) || port <= 0 || port > 65535))) { setFieldError('err_port', true); hasError = true; }
     if (hasError) return;
 
     const data = {
@@ -711,6 +741,9 @@ function bindFormSubmit() {
       api_source: $('f_api_source').value,
       mcmotdapi_host: $('f_mcmotdapi_host').value,
       mcmotdapi_ssl: $('f_mcmotdapi_ssl').checked,
+      mcmotdapi_enable_srv: $('f_mcmotdapi_enable_srv').value === ''
+        ? null
+        : $('f_mcmotdapi_enable_srv').value === 'true',
     };
 
     const mode = getSelectedMode();
@@ -762,6 +795,10 @@ function bindStaticUi() {
   // mcmotdapi 配置显隐
   const fApiSource = $('f_api_source');
   if (fApiSource) fApiSource.addEventListener('change', toggleMcmotdapiConfig);
+  const fType = $('f_type');
+  if (fType) fType.addEventListener('change', toggleMcmotdapiConfig);
+  const fSrv = $('f_mcmotdapi_enable_srv');
+  if (fSrv) fSrv.addEventListener('change', updatePortRequirement);
 
   // 消息格式模式切换
   document.querySelectorAll('input[name="msg_format"]').forEach(el => {

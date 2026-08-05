@@ -28,10 +28,39 @@ DEFAULT_GROUP_CONFIG = {
     "api_source": "",
     "mcmotdapi_host": "",
     "mcmotdapi_ssl": None,
+    "mcmotdapi_enable_srv": None,
     "simple_mode": None,
     "custom_mode": None,
     "custom_fields": None,
 }
+
+
+def is_srv_port_optional(
+    server_type: str,
+    api_source: str,
+    enable_srv: bool | None,
+) -> bool:
+    """Return whether Java mcmotdapi may resolve the port through SRV."""
+
+    return (
+        server_type == "java"
+        and api_source == "mcmotdapi"
+        and enable_srv is True
+    )
+
+
+def normalize_server_port(value: object) -> int | None:
+    """Normalize a persisted optional Minecraft port without raising on bad data."""
+
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        port = value
+    elif isinstance(value, str) and value.strip().isdecimal():
+        port = int(value.strip())
+    else:
+        return None
+    return port if 1 <= port <= 65535 else None
 
 
 class GroupConfig:
@@ -42,13 +71,19 @@ class GroupConfig:
         self.group_id: str = str(data.get("group_id", ""))
         self.name: str = str(data.get("name", DEFAULT_GROUP_CONFIG["name"]))
         self.server_ip: str = str(data.get("server_ip", ""))
-        self.server_port: int = int(data.get("server_port", DEFAULT_GROUP_CONFIG["server_port"]))
+        self.server_port: int | None = normalize_server_port(
+            data.get("server_port", DEFAULT_GROUP_CONFIG["server_port"])
+        )
         self.server_type: str = str(data.get("server_type", DEFAULT_GROUP_CONFIG["server_type"]))
         self.enabled: bool = bool(data.get("enabled", True))
         self.api_source: str = str(data.get("api_source", ""))
         self.mcmotdapi_host: str = str(data.get("mcmotdapi_host", "") or "")
         raw_ssl = data.get("mcmotdapi_ssl")
         self.mcmotdapi_ssl: bool | None = None if raw_ssl is None else bool(raw_ssl)
+        raw_enable_srv = data.get("mcmotdapi_enable_srv")
+        self.mcmotdapi_enable_srv: bool | None = (
+            raw_enable_srv if type(raw_enable_srv) is bool else None
+        )
         raw_simple = data.get("simple_mode")
         self.simple_mode: bool | None = None if raw_simple is None else bool(raw_simple)
         raw_custom = data.get("custom_mode")
@@ -69,6 +104,7 @@ class GroupConfig:
             "api_source": self.api_source,
             "mcmotdapi_host": self.mcmotdapi_host,
             "mcmotdapi_ssl": self.mcmotdapi_ssl,
+            "mcmotdapi_enable_srv": self.mcmotdapi_enable_srv,
             "simple_mode": self.simple_mode,
             "custom_mode": self.custom_mode,
             "custom_fields": self.custom_fields,
@@ -78,6 +114,11 @@ class GroupConfig:
     def is_valid(self) -> bool:
         """检查配置是否包含必要的群号、IP 和端口。"""
         return bool(self.group_id and self.server_ip and self.server_port)
+
+    def has_query_identity(self) -> bool:
+        """Check the non-port fields required before policy-aware validation."""
+
+        return bool(self.group_id and self.server_ip)
 
 
 class ConfigManager:
@@ -135,7 +176,11 @@ class ConfigManager:
 
     def get_enabled_groups(self) -> Dict[str, GroupConfig]:
         """返回所有已启用且有效的群配置。"""
-        return {gid: cfg for gid, cfg in self._groups.items() if cfg.enabled and cfg.is_valid()}
+        return {
+            gid: cfg
+            for gid, cfg in self._groups.items()
+            if cfg.enabled and cfg.has_query_identity()
+        }
 
     def save_group(self, data: dict) -> GroupConfig:
         """新增或更新一个群的配置并持久化。"""

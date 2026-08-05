@@ -17,11 +17,12 @@ from .mcmotdapi_client import McMotdApiClient
 def create_mc_client(
     api_source: str,
     server_ip: str,
-    server_port: int,
+    server_port: int | None,
     server_type: str = "bedrock",
     server_name: str = "Minecraft服务器",
     mcmotdapi_host: str = "motd.minebbs.com",
     mcmotdapi_ssl: bool = True,
+    mcmotdapi_enable_srv: bool = True,
 ) -> McStatusClient | McMotdApiClient:
     """根据 api_source 创建对应的 Minecraft 服务器查询客户端。
 
@@ -33,6 +34,7 @@ def create_mc_client(
         server_name: 显示用服务器名称。
         mcmotdapi_host: mcmotdapi 服务地址（含端口）。
         mcmotdapi_ssl: mcmotdapi 是否使用 HTTPS。
+        mcmotdapi_enable_srv: 是否为 Java mcmotdapi 请求启用 SRV 查询。
 
     Returns:
         客户端实例，实现了 get_server_info() / close() / async with 协议。
@@ -45,6 +47,7 @@ def create_mc_client(
             server_name=server_name,
             api_host=mcmotdapi_host,
             use_ssl=mcmotdapi_ssl,
+            mcmotdapi_enable_srv=mcmotdapi_enable_srv,
         )
     # 默认使用 mcstatus.io
     return McStatusClient(

@@ -30,6 +30,12 @@
     "hint": "仅当 API查询源 为 mcmotdapi 时生效。自部署内网可关闭",
     "default": true
   },
+  "mcmotdapi_enable_srv": {
+    "description": "mcmotdapi 启用 Java SRV 解析",
+    "type": "bool",
+    "hint": "仅当 API查询源 为 mcmotdapi 且服务器类型为 Java 时生效。启用后会解析 _minecraft._tcp SRV 记录",
+    "default": true
+  },
   "simple_mode": {
     "description": "简化消息格式",
     "type": "bool",

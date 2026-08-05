@@ -10,7 +10,7 @@
   - utils.notifier      群消息发送
   - utils.hitokoto      一言
 
-版本: v1.1.0
+版本: v1.1.1
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from .utils.hitokoto import get_hitokoto
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_VERSION = "1.1.1"
 
 
 @register(
@@ -60,6 +60,7 @@ class MyPlugin(Star):
         self.api_source = self.config.get("api_source", "mcstatus")
         self.mcmotdapi_host = self.config.get("mcmotdapi_host", "motd.minebbs.com")
         self.mcmotdapi_ssl = self.config.get("mcmotdapi_ssl", True)
+        self.mcmotdapi_enable_srv = self.config.get("mcmotdapi_enable_srv", True)
         self.simple_mode = self.config.get("simple_mode", False)
         self.statistics_fonts = self.config.get("statistics_fonts", [])
         self.statistics_text_style = normalize_text_style(
@@ -86,6 +87,7 @@ class MyPlugin(Star):
                 api_source=self.api_source,
                 mcmotdapi_host=self.mcmotdapi_host,
                 mcmotdapi_ssl=self.mcmotdapi_ssl,
+                mcmotdapi_enable_srv=self.mcmotdapi_enable_srv,
                 simple_mode=self.simple_mode,
             ),
             stats_store=self.stats_store,
@@ -137,7 +139,7 @@ class MyPlugin(Star):
                 group_id: target
                 for group_id in configured_groups
                 if (cfg := self.config_mgr.get(group_id)) is not None
-                and cfg.is_valid()
+                and self.monitor.is_query_config_valid(cfg)
                 and (target := self.monitor.get_target_signature(group_id)) is not None
             }
             removed = await asyncio.to_thread(
@@ -236,16 +238,22 @@ class MyPlugin(Star):
         self._cache_event_session(event)
 
         cfg = self.config_mgr.get(group_id)
-        if not cfg:
+        is_query_config_valid = getattr(self.monitor, "is_query_config_valid", None)
+        if not cfg or not (
+            is_query_config_valid(cfg) if callable(is_query_config_valid) else cfg.is_valid()
+        ):
             yield event.plain_result(
                 "❌ 当前群未配置监控，请管理员在 WebUI 插件页面「Minecraft服务器监控」中添加配置"
             )
             return
 
         try:
-            effective_source = cfg.api_source if cfg.api_source else self.api_source
-            effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
-            effective_ssl = self.mcmotdapi_ssl if cfg.mcmotdapi_ssl is None else cfg.mcmotdapi_ssl
+            (
+                effective_source,
+                effective_host,
+                effective_ssl,
+                effective_enable_srv,
+            ) = self.monitor.resolve_effective_config(cfg)
             async with create_mc_client(
                 api_source=effective_source,
                 server_ip=cfg.server_ip,
@@ -254,6 +262,7 @@ class MyPlugin(Star):
                 server_name=cfg.name,
                 mcmotdapi_host=effective_host,
                 mcmotdapi_ssl=effective_ssl,
+                mcmotdapi_enable_srv=effective_enable_srv,
             ) as client:
                 server_data = await client.get_server_info()
             if server_data is None:
@@ -280,12 +289,7 @@ class MyPlugin(Star):
                     need_hitokoto = True
 
             # 显示使用的 API 源
-            effective_source = cfg.api_source if cfg.api_source else self.api_source
-            effective_host = cfg.mcmotdapi_host if cfg.mcmotdapi_host else self.mcmotdapi_host
-            if effective_source == "mcmotdapi":
-                source_tag = f"mcmotdapi({effective_host or 'motd.minebbs.com'})"
-            else:
-                source_tag = "mcstatus.io"
+            source_tag = self.monitor.format_effective_api_source(cfg)
             result = f"🔍 API: {source_tag}\n\n{result}"
 
             if need_hitokoto:
@@ -310,7 +314,10 @@ class MyPlugin(Star):
         self._cache_event_session(event)
 
         cfg = self.config_mgr.get(group_id)
-        if not cfg or not cfg.is_valid():
+        is_query_config_valid = getattr(self.monitor, "is_query_config_valid", None)
+        if not cfg or not (
+            is_query_config_valid(cfg) if callable(is_query_config_valid) else cfg.is_valid()
+        ):
             yield event.plain_result(
                 "❌ 当前群未配置监控，请管理员在 WebUI 插件页面「Minecraft服务器监控」中添加配置"
             )
