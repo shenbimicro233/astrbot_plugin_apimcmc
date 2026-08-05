@@ -10,10 +10,13 @@
   - utils.notifier      群消息发送
   - utils.hitokoto      一言
 
-版本: v1.0.5
+版本: v1.1.0
 """
 
 from __future__ import annotations
+
+import asyncio
+from datetime import datetime
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -27,13 +30,14 @@ from .mcserver.formatter import (
 )
 from .monitor.run_log import RunLogBuffer
 from .monitor.service import MonitorConfig, MonitorService
-from .utils import build_group_session
-from .utils.group_config import ConfigManager
+from .player_stats.renderer import PlayerStatsRenderer, normalize_text_style
+from .player_stats.store import PlayerStatsStore
+from .utils.group_config import CONFIG_DATA_DIR, ConfigManager
 from .utils.hitokoto import get_hitokoto
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.0.5"
+PLUGIN_VERSION = "1.1.0"
 
 
 @register(
@@ -45,7 +49,7 @@ PLUGIN_VERSION = "1.0.5"
 class MyPlugin(Star):
     """Minecraft 服务器监控插件。"""
 
-    def __init__(self, context: Context, config: AstrBotConfig = None):
+    def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.config = config or {}
 
@@ -57,9 +61,23 @@ class MyPlugin(Star):
         self.mcmotdapi_host = self.config.get("mcmotdapi_host", "motd.minebbs.com")
         self.mcmotdapi_ssl = self.config.get("mcmotdapi_ssl", True)
         self.simple_mode = self.config.get("simple_mode", False)
+        self.statistics_fonts = self.config.get("statistics_fonts", [])
+        self.statistics_text_style = normalize_text_style(
+            self.config.get("statistics_text_style", "monocraft")
+        )
 
         self._run_logs = RunLogBuffer()
         self.config_mgr = ConfigManager()
+        self.stats_store = PlayerStatsStore(
+            CONFIG_DATA_DIR / "player_statistics.json",
+            logger=self._run_log,
+        )
+        self.stats_renderer = PlayerStatsRenderer(
+            CONFIG_DATA_DIR / "statistics_temp",
+            font_candidates=self.statistics_fonts,
+            text_style=self.statistics_text_style,
+            logger=self._run_log,
+        )
         self.monitor = MonitorService(
             context,
             self.config_mgr,
@@ -70,6 +88,7 @@ class MyPlugin(Star):
                 mcmotdapi_ssl=self.mcmotdapi_ssl,
                 simple_mode=self.simple_mode,
             ),
+            stats_store=self.stats_store,
         )
         self.check_interval = self.monitor.check_interval
         self.monitor.set_run_log(self._run_log, buffer_only=self._run_log_buffer_only)
@@ -101,9 +120,7 @@ class MyPlugin(Star):
         log_fn = getattr(logger, level_key, logger.info)
         log_fn(msg)
 
-    def _run_log_buffer_only(
-        self, level: str, msg: str, group_id: str | None = None
-    ) -> None:
+    def _run_log_buffer_only(self, level: str, msg: str, group_id: str | None = None) -> None:
         """仅写入缓冲（notifier 内部已打 logger）。"""
         self._run_logs.append(level, msg, group_id)
 
@@ -111,8 +128,51 @@ class MyPlugin(Star):
     # 生命周期
     # ──────────────────────────────
 
+    async def _prepare_player_stats(self) -> None:
+        """Reconcile bounded statistics and renderer resources at startup."""
+
+        try:
+            configured_groups = set(self.config_mgr.get_all())
+            configured_targets = {
+                group_id: target
+                for group_id in configured_groups
+                if (cfg := self.config_mgr.get(group_id)) is not None
+                and cfg.is_valid()
+                and (target := self.monitor.get_target_signature(group_id)) is not None
+            }
+            removed = await asyncio.to_thread(
+                self.stats_store.retain_current_targets,
+                configured_targets,
+            )
+            if removed:
+                self._run_log("INFO", f"已清理 {removed} 个失效群的玩家统计")
+        except Exception as exc:
+            self._run_log("WARN", f"清理失效群玩家统计失败: {exc}")
+
+        try:
+            await asyncio.to_thread(self.stats_renderer.cleanup_stale)
+        except Exception as exc:
+            self._run_log("WARN", f"清理过期玩家统计图片失败: {exc}")
+
+        if self.stats_renderer.requires_bundled_monocraft and not await asyncio.to_thread(
+            self.stats_renderer.has_bundled_monocraft
+        ):
+            self._run_log(
+                "WARN",
+                "当前统计图文字样式需要内置 Monocraft，但字体或许可证不可用，将使用备用字体",
+            )
+
+        if self.stats_renderer.requires_bundled_fusion_pixel and not await asyncio.to_thread(
+            self.stats_renderer.has_bundled_fusion_pixel
+        ):
+            self._run_log(
+                "WARN",
+                "普通中文统计图需要内置 Fusion Pixel 显示全部文字，但字体或许可证不可用，将使用备用字体",
+            )
+
     async def initialize(self):
         """插件初始化完成后调用，可执行异步启动逻辑。"""
+        await self._prepare_player_stats()
         self._run_log(
             "INFO",
             "Minecraft服务器监控插件已加载 | 使用 /start_server_monitor 启动监控 | 在 WebUI 插件页配置每群监控",
@@ -125,6 +185,10 @@ class MyPlugin(Star):
         """插件停用/重载前调用，仅做资源清理，不删除持久化数据。"""
         self._run_log("INFO", "正在清理 Minecraft 监控插件...")
         await self.monitor.terminate()
+        try:
+            await asyncio.to_thread(self.stats_renderer.cleanup_all)
+        except Exception as exc:
+            self._run_log("WARN", f"清理玩家统计图片失败: {exc}")
         self._run_logs.clear()
         logger.info("Minecraft 监控插件已完全卸载")
 
@@ -205,7 +269,9 @@ class MyPlugin(Star):
                 result = format_server_info_custom(server_data, cfg.server_type, cfg.custom_fields)
                 need_hitokoto = "hitokoto" in cfg.custom_fields
             else:
-                effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+                effective_simple = (
+                    cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+                )
                 if effective_simple:
                     result = format_server_info_simple(server_data)
                     need_hitokoto = False
@@ -231,6 +297,52 @@ class MyPlugin(Star):
         except Exception as e:
             logger.warning(f"查询服务器状态时出错: {e}")
             yield event.plain_result(f"❌ 查询服务器时出错: {e}")
+
+    @filter.command("在线统计")
+    async def get_player_statistics(self, event: AstrMessageEvent):
+        """返回当前群服务器最近 24 小时的玩家在线人数统计图。"""
+
+        group_id = event.get_group_id()
+        if not group_id:
+            yield event.plain_result("❌ 该命令仅在群聊中使用")
+            return
+        group_id = str(group_id)
+        self._cache_event_session(event)
+
+        cfg = self.config_mgr.get(group_id)
+        if not cfg or not cfg.is_valid():
+            yield event.plain_result(
+                "❌ 当前群未配置监控，请管理员在 WebUI 插件页面「Minecraft服务器监控」中添加配置"
+            )
+            return
+
+        try:
+            target_signature = self.monitor.get_target_signature(group_id)
+            if target_signature is None:
+                yield event.plain_result("❌ 当前群的服务器配置无效，请管理员检查配置")
+                return
+            now = datetime.now().astimezone()
+            series = await asyncio.to_thread(
+                self.stats_store.get_window,
+                group_id,
+                target_signature,
+            )
+            if series is None or not series.observations:
+                yield event.plain_result(
+                    "📊 最近24小时暂无在线人数统计，请先启动服务器监控并等待成功查询"
+                )
+                return
+
+            image_path = await asyncio.to_thread(
+                self.stats_renderer.render,
+                series,
+                server_type=cfg.server_type,
+                now=now,
+            )
+            yield event.image_result(str(image_path))
+        except Exception as exc:
+            self._run_log("WARN", f"生成群 {group_id} 的玩家统计图失败: {exc}", group_id)
+            yield event.plain_result("❌ 生成在线统计图失败，请稍后重试")
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("重置监控")

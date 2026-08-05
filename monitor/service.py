@@ -19,6 +19,7 @@ from ..mcserver.formatter import (
     format_server_info_custom,
     format_server_info_simple,
 )
+from ..player_stats.store import PlayerStatsStore
 from ..utils import GroupTarget, build_group_session, send_to_group
 from ..utils.group_config import ConfigManager, GroupConfig
 from ..utils.hitokoto import get_hitokoto
@@ -48,6 +49,7 @@ class MonitorService:
         *,
         config: MonitorConfig | None = None,
         run_log: RunLogFn | None = None,
+        stats_store: PlayerStatsStore | None = None,
     ):
         self.context = context
         self.config_mgr = config_mgr
@@ -59,6 +61,7 @@ class MonitorService:
         self.simple_mode = cfg.simple_mode
         self._run_log_fn = run_log
         self._run_log_buffer_only: RunLogFn | None = None
+        self.stats_store = stats_store
 
         self.task: asyncio.Task | None = None
         self._auto_start_task: asyncio.Task | None = None
@@ -102,6 +105,8 @@ class MonitorService:
             return MonitorConfig.check_interval
         if isinstance(value, float) and not value.is_integer():
             return MonitorConfig.check_interval
+        if not isinstance(value, (str, int, float)):
+            return MonitorConfig.check_interval
         try:
             interval = int(value)
         except (TypeError, ValueError):
@@ -119,8 +124,8 @@ class MonitorService:
         cfg: GroupConfig,
         default_source: str,
         default_host: str,
-        default_ssl: bool | None,
-    ) -> tuple[str, str, bool | None]:
+        default_ssl: bool,
+    ) -> tuple[str, str, bool]:
         """合并 per-group 配置与全局默认值。
 
         Returns:
@@ -134,7 +139,7 @@ class MonitorService:
     def _target_signature(
         self,
         cfg: GroupConfig,
-    ) -> tuple[str, int, str, str, str, bool | None]:
+    ) -> tuple[str, int, str, str, str, bool]:
         """返回会影响服务器查询结果的配置签名。"""
         source, host, ssl = self._resolve_effective_cfg(
             cfg,
@@ -150,6 +155,42 @@ class MonitorService:
             host,
             ssl,
         )
+
+    def get_target_signature(
+        self,
+        group_id: str,
+    ) -> tuple[str, int, str, str, str, bool] | None:
+        """Return the current group's canonical effective target signature."""
+
+        cfg = self.config_mgr.get(str(group_id))
+        return self._target_signature(cfg) if cfg else None
+
+    async def _delete_group_stats(self, group_id: str) -> None:
+        if self.stats_store is None:
+            return
+        try:
+            await asyncio.to_thread(self.stats_store.delete_group, group_id)
+        except Exception as exc:
+            self._log("WARN", f"清理群 {group_id} 的玩家统计失败: {exc}", group_id)
+
+    async def _record_player_stats(
+        self,
+        group_id: str,
+        cfg: GroupConfig,
+        server_data: dict,
+    ) -> None:
+        if self.stats_store is None:
+            return
+        try:
+            await asyncio.to_thread(
+                self.stats_store.record,
+                group_id,
+                self._target_signature(cfg),
+                server_data,
+                datetime.now().astimezone(),
+            )
+        except Exception as exc:
+            self._log("WARN", f"记录群 {group_id} 的玩家统计失败: {exc}", group_id)
 
     # ── 运行时状态 ──
 
@@ -169,10 +210,9 @@ class MonitorService:
             self._group_targets.pop(gid, None)
 
         for gid, cfg in enabled.items():
-            target_changed = (
-                gid in self._group_targets
-                and self._group_targets[gid] != self._target_signature(cfg)
-            )
+            target_changed = gid in self._group_targets and self._group_targets[
+                gid
+            ] != self._target_signature(cfg)
             self._set_client(gid, cfg)
             if gid not in self._group_trackers or target_changed:
                 self._group_trackers[gid] = ChangeTracker()
@@ -183,16 +223,26 @@ class MonitorService:
         cfg = self.config_mgr.get(group_id)
         if cfg and cfg.enabled and cfg.is_valid():
             new_target = self._target_signature(cfg)
+            if old_target is not None and old_target != new_target:
+                # A changed target must not leave the previous server's
+                # rolling window available on disk while waiting for the
+                # first successful observation from the replacement target.
+                await self._delete_group_stats(group_id)
             self._set_client(group_id, cfg)
             if group_id not in self._group_trackers or old_target != new_target:
                 self._group_trackers[group_id] = ChangeTracker()
         else:
             self._group_trackers.pop(group_id, None)
             self._group_targets.pop(group_id, None)
+            if cfg is None:
+                await self._delete_group_stats(group_id)
 
     def _set_client(self, group_id: str, cfg: GroupConfig) -> None:
         effective_source, effective_host, effective_ssl = self._resolve_effective_cfg(
-            cfg, self.api_source, self.mcmotdapi_host, self.mcmotdapi_ssl,
+            cfg,
+            self.api_source,
+            self.mcmotdapi_host,
+            self.mcmotdapi_ssl,
         )
         source_display = self._fmt_api_source(effective_source, effective_host)
         self._log("INFO", f"群 {group_id} 已初始化客户端 | API: {source_display}", group_id)
@@ -259,7 +309,10 @@ class MonitorService:
             return False
         # 先标记停止，再取消任务，避免循环误判
         self._stopped = True
-        self.task.cancel()
+        task = self.task
+        if task is None:
+            return False
+        task.cancel()
         self.task = None
         return True
 
@@ -348,10 +401,16 @@ class MonitorService:
                 return "skipped"
 
             cfg = self.config_mgr.get(group_id)
+            if cfg is None:
+                self._log("WARN", f"Group {group_id} configuration is missing; skipping", group_id)
+                return "skipped"
             target = f"{cfg.server_ip}:{cfg.server_port}" if cfg else "?"
             name = cfg.name if cfg else ""
             effective_source, effective_host, _ = self._resolve_effective_cfg(
-                cfg, self.api_source, self.mcmotdapi_host, self.mcmotdapi_ssl,
+                cfg,
+                self.api_source,
+                self.mcmotdapi_host,
+                self.mcmotdapi_ssl,
             )
             source_display = self._fmt_api_source(effective_source, effective_host)
             self._log(
@@ -364,6 +423,9 @@ class MonitorService:
             if server_data is None:
                 self._log("WARN", f"群 {group_id} 的服务器请求失败，跳过", group_id)
                 return "failed"
+
+            if cfg is not None:
+                await self._record_player_stats(group_id, cfg, server_data)
 
             should_send, change_msg = tracker.check_changes(server_data)
             if not should_send:
@@ -390,7 +452,9 @@ class MonitorService:
                 final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
                 need_hitokoto = "hitokoto" in cfg.custom_fields
             else:
-                effective_simple = cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+                effective_simple = (
+                    cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+                )
                 if effective_simple:
                     status_line = format_server_info_simple(server_data)
                     final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"

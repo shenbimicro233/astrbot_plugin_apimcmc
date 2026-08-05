@@ -219,6 +219,9 @@ tests/
 .agents/
 .codex/
 .trellis/
+.tmp/
+requirements-dev.txt
+pyproject.toml
 AGENTS.md
 .gitattributes
 

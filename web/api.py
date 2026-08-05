@@ -69,12 +69,7 @@ class WebApiHandler:
             group_id = value.strip()
         else:
             raise ValueError("group_id 必须是正整数群号")
-        if (
-            not group_id
-            or not group_id.isascii()
-            or not group_id.isdigit()
-            or int(group_id) <= 0
-        ):
+        if not group_id or not group_id.isascii() or not group_id.isdigit() or int(group_id) <= 0:
             raise ValueError("group_id 必须是正整数群号")
         return group_id
 
@@ -153,7 +148,8 @@ class WebApiHandler:
                 body,
                 "name",
                 DEFAULT_GROUP_CONFIG["name"],
-            ) or DEFAULT_GROUP_CONFIG["name"],
+            )
+            or DEFAULT_GROUP_CONFIG["name"],
             "server_ip": server_ip,
             "server_port": cls._parse_port(
                 body.get("server_port", DEFAULT_GROUP_CONFIG["server_port"])
@@ -196,7 +192,7 @@ class WebApiHandler:
         try:
             return json_response(self.config_mgr.get_all())
         except Exception as e:
-            self._run_log("ERROR", f"WebUI: 获取配置失败: {e}")
+            self._run_log("ERROR", f"WebUI: 获取配置失败: {e}", None)
             return error_response("获取配置失败", status_code=500)
 
     async def api_save_config(self):
@@ -218,7 +214,7 @@ class WebApiHandler:
             )
             return json_response({"ok": True, "config": cfg.to_dict()})
         except Exception as e:
-            self._run_log("ERROR", f"WebUI: 保存配置失败: {e}")
+            self._run_log("ERROR", f"WebUI: 保存配置失败: {e}", None)
             return error_response("保存配置失败", status_code=500)
 
     async def api_delete_config(self):
@@ -240,19 +236,21 @@ class WebApiHandler:
             self._run_log("INFO", f"WebUI: 已删除群 {group_id} 的配置", group_id)
             return json_response({"ok": True})
         except Exception as e:
-            self._run_log("ERROR", f"WebUI: 删除配置失败: {e}")
+            self._run_log("ERROR", f"WebUI: 删除配置失败: {e}", None)
             return error_response("删除配置失败", status_code=500)
 
     async def api_get_stats(self):
         """获取运行时状态。"""
-        return json_response({
-            "monitor_running": self.monitor.is_running(),
-            "configured_groups": len(self.config_mgr.get_all()),
-            "enabled_groups": len(self.config_mgr.get_enabled_groups()),
-            "check_interval": self.monitor.check_interval,
-            "last_check_at": self.monitor.last_check_at,
-            "last_round_summary": self.monitor.last_round_summary,
-        })
+        return json_response(
+            {
+                "monitor_running": self.monitor.is_running(),
+                "configured_groups": len(self.config_mgr.get_all()),
+                "enabled_groups": len(self.config_mgr.get_enabled_groups()),
+                "check_interval": self.monitor.check_interval,
+                "last_check_at": self.monitor.last_check_at,
+                "last_round_summary": self.monitor.last_round_summary,
+            }
+        )
 
     async def api_get_logs(self):
         """获取监控运行日志（增量）。"""
@@ -268,23 +266,25 @@ class WebApiHandler:
             )
 
         logs, next_id = self.run_logs.list_since(since_id=since_id, limit=limit)
-        return json_response({
-            "ok": True,
-            "logs": logs,
-            "next_id": next_id,
-            "monitor_running": self.monitor.is_running(),
-            "check_interval": self.monitor.check_interval,
-            "enabled_groups": len(self.config_mgr.get_enabled_groups()),
-            "last_check_at": self.monitor.last_check_at,
-            "last_round_summary": self.monitor.last_round_summary,
-        })
+        return json_response(
+            {
+                "ok": True,
+                "logs": logs,
+                "next_id": next_id,
+                "monitor_running": self.monitor.is_running(),
+                "check_interval": self.monitor.check_interval,
+                "enabled_groups": len(self.config_mgr.get_enabled_groups()),
+                "last_check_at": self.monitor.last_check_at,
+                "last_round_summary": self.monitor.last_round_summary,
+            }
+        )
 
     async def api_clear_logs(self):
         """清空监控运行日志。"""
         try:
             self.run_logs.clear()
-            self._run_log("INFO", "WebUI: 运行日志已清空")
+            self._run_log("INFO", "WebUI: 运行日志已清空", None)
             return json_response({"ok": True})
         except Exception as e:
-            self._run_log("ERROR", f"WebUI: 清空日志失败: {e}")
+            self._run_log("ERROR", f"WebUI: 清空日志失败: {e}", None)
             return error_response("清空日志失败", status_code=500)

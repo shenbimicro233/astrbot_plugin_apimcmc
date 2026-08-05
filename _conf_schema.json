@@ -35,5 +35,22 @@
     "type": "bool",
     "hint": "开启后，发送到群的消息将精简为单行摘要，避免大型服务器刷屏",
     "default": false
+  },
+  "statistics_text_style": {
+    "description": "统计图文字样式",
+    "type": "string",
+    "hint": "普通中文（Fusion Pixel）的全部图表文字为中文并只使用内置 Fusion Pixel；附魔台文字只使用内置 Monocraft 并仅转换英文字母；系统/配置字体使用备用字体候选",
+    "default": "monocraft",
+    "options": ["monocraft", "galactic", "system"],
+    "labels": ["普通中文（Fusion Pixel）", "附魔台文字", "系统/配置字体"]
+  },
+  "statistics_fonts": {
+    "description": "统计图备用字体候选",
+    "type": "list",
+    "items": {
+      "type": "string"
+    },
+    "hint": "选择系统/配置字体或内置字体不可用时按顺序尝试；留空时使用跨平台系统回退字体",
+    "default": []
   }
 }

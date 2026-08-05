@@ -42,12 +42,8 @@ class GroupConfig:
         self.group_id: str = str(data.get("group_id", ""))
         self.name: str = str(data.get("name", DEFAULT_GROUP_CONFIG["name"]))
         self.server_ip: str = str(data.get("server_ip", ""))
-        self.server_port: int = int(
-            data.get("server_port", DEFAULT_GROUP_CONFIG["server_port"])
-        )
-        self.server_type: str = str(
-            data.get("server_type", DEFAULT_GROUP_CONFIG["server_type"])
-        )
+        self.server_port: int = int(data.get("server_port", DEFAULT_GROUP_CONFIG["server_port"]))
+        self.server_type: str = str(data.get("server_type", DEFAULT_GROUP_CONFIG["server_type"]))
         self.enabled: bool = bool(data.get("enabled", True))
         self.api_source: str = str(data.get("api_source", ""))
         self.mcmotdapi_host: str = str(data.get("mcmotdapi_host", "") or "")
@@ -139,11 +135,7 @@ class ConfigManager:
 
     def get_enabled_groups(self) -> Dict[str, GroupConfig]:
         """返回所有已启用且有效的群配置。"""
-        return {
-            gid: cfg
-            for gid, cfg in self._groups.items()
-            if cfg.enabled and cfg.is_valid()
-        }
+        return {gid: cfg for gid, cfg in self._groups.items() if cfg.enabled and cfg.is_valid()}
 
     def save_group(self, data: dict) -> GroupConfig:
         """新增或更新一个群的配置并持久化。"""
@@ -153,9 +145,7 @@ class ConfigManager:
 
         existing = self._groups.get(gid)
         created_at = (
-            existing.created_at
-            if existing
-            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            existing.created_at if existing else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
         merged = {
@@ -180,4 +170,3 @@ class ConfigManager:
             self._groups = updated_groups
             return True
         return False
-

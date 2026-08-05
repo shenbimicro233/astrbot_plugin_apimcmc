@@ -78,9 +78,9 @@ def _format_player_list_only(server_data: dict) -> str:
     return msg
 
 
-def _format_extra_fields(server_data: dict) -> str:
+def _format_extra_fields(server_data: dict) -> list[str]:
     """格式化地图、ID、服务器类型、更新时间等附加字段。"""
-    parts = []
+    parts: list[str] = []
 
     server_map = server_data.get("map")
     if server_map and server_map != "未知":
@@ -132,42 +132,37 @@ FIELD_RENDERERS = {
     "status_emoji": lambda d, t: "🟢" if d.get("status") == "online" else "🔴",
     "name": lambda d, t: d.get("name", "未知服务器"),
     "version": lambda d, t: (
-        f"🎮 版本: {d['version']}" if d.get("version") and d["version"] != "未知版本"
-        else ""
+        f"🎮 版本: {d['version']}" if d.get("version") and d["version"] != "未知版本" else ""
     ),
-    "protocol": lambda d, t: (
-        f"🔌 协议: {d['protocol']}" if d.get("protocol") else ""
-    ),
+    "protocol": lambda d, t: f"🔌 协议: {d['protocol']}" if d.get("protocol") else "",
     "player_count": lambda d, t: f"👥 {d.get('online', 0)}/{d.get('max', 0)}",
-    "player_list": lambda d, t: (
-        _format_player_list_only(d) if d.get("online", 0) > 0 else ""
-    ),
-    "motd": lambda d, t: (
-        _format_motd(d.get("motd", "")).rstrip("\n") if d.get("motd") else ""
-    ),
+    "player_list": lambda d, t: _format_player_list_only(d) if d.get("online", 0) > 0 else "",
+    "motd": lambda d, t: _format_motd(d.get("motd", "")).rstrip("\n") if d.get("motd") else "",
     "software": lambda d, t: (
-        f"🛠️ 软件: {d['software']}" if d.get("software") and d["software"] != "未知"
-        else ""
+        f"🛠️ 软件: {d['software']}" if d.get("software") and d["software"] != "未知" else ""
     ),
     "type_label": lambda d, t: f"🔧 类型: {'基岩版' if t == 'bedrock' else 'Java版'}",
-    "map": lambda d, t: (
-        f"🗺️ 地图: {d['map']}" if d.get("map") and d["map"] != "未知" else ""
-    ),
-    "update_time": lambda d, t: (
-        f"🕒 更新时间: {d['update_time']}" if d.get("update_time") else ""
-    ),
+    "map": lambda d, t: f"🗺️ 地图: {d['map']}" if d.get("map") and d["map"] != "未知" else "",
+    "update_time": lambda d, t: f"🕒 更新时间: {d['update_time']}" if d.get("update_time") else "",
 }
 
 # 自定义模式的固定字段顺序（hitokoto 由调用方在函数外追加，不在此处理）
 CUSTOM_FIELD_ORDER = [
-    "status_emoji", "name", "motd", "version", "protocol",
-    "player_count", "player_list", "software", "type_label", "map", "update_time",
+    "status_emoji",
+    "name",
+    "motd",
+    "version",
+    "protocol",
+    "player_count",
+    "player_list",
+    "software",
+    "type_label",
+    "map",
+    "update_time",
 ]
 
 
-def format_server_info_custom(
-    server_data: dict, server_type: str, fields: list
-) -> str:
+def format_server_info_custom(server_data: dict, server_type: str, fields: list) -> str:
     """根据所选字段列表自定义格式，字段顺序固定。"""
     if server_data is None:
         return "❌ 获取服务器数据失败"
@@ -207,7 +202,4 @@ def format_server_info_simple(server_data: dict) -> str:
     online = server_data.get("online", 0)
     max_players = server_data.get("max", 0)
 
-    return (
-        f"{status_emoji} {name}  "
-        f"👥 {online}/{max_players}"
-    )
+    return f"{status_emoji} {name}  👥 {online}/{max_players}"
