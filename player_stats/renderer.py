@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .model import (
     PlayerCountObservation,
     PlayerCountWindowSeries,
+    SLOT_SECONDS,
     WINDOW_DURATION,
     WINDOW_SLOT_COUNT,
     to_local_datetime,
@@ -28,6 +29,7 @@ TEMP_FILE_PREFIX = "player-stats-"
 STALE_AFTER = timedelta(hours=24)
 LONG_OFFLINE_AFTER = timedelta(minutes=30)
 WINDOW_SECONDS = int(WINDOW_DURATION.total_seconds())
+MISSING_DATA_MASK_FILL = (184, 36, 36, 104)
 CHART_PANEL_LEFT = 55
 CHART_PLOT_LEFT = 108
 Y_AXIS_LABEL_RIGHT_GAP = 6
@@ -68,7 +70,7 @@ _ENGLISH_CHART_COPY = {
     "last_observed": "LAST OBSERVED",
     "offline_legend": "OFFLINE 30+ MIN",
     "contiguous": "CONTIGUOUS",
-    "missing_gap": "MISSING GAP",
+    "missing_gap": "MISSING DATA",
 }
 
 _CHINESE_CHART_COPY = {
@@ -86,7 +88,7 @@ _CHINESE_CHART_COPY = {
     "last_observed": "最后观测",
     "offline_legend": "离线超过 30 分钟",
     "contiguous": "连续观测",
-    "missing_gap": "缺失间隔",
+    "missing_gap": "缺失数据",
 }
 
 DEFAULT_FONT_CANDIDATES = (
@@ -228,6 +230,52 @@ def _window_observations(
     return tuple(
         observation for observation in series.observations if observation.observed_at >= cutoff
     )[-WINDOW_SLOT_COUNT:]
+
+
+def _missing_slot_bands(
+    observations: Sequence[PlayerCountObservation],
+    *,
+    window_start: datetime,
+    window_end: datetime,
+) -> tuple[tuple[float, float], ...]:
+    """Return clipped timestamp bands for unobserved absolute 15-minute slots."""
+
+    window_start_timestamp = window_start.timestamp()
+    window_end_timestamp = window_end.timestamp()
+    if window_end_timestamp <= window_start_timestamp:
+        return ()
+
+    observed_slots = {observation.slot for observation in observations}
+    first_slot = int(window_start_timestamp // SLOT_SECONDS)
+    last_slot = int(window_end_timestamp // SLOT_SECONDS)
+    bands: list[tuple[float, float]] = []
+    current_band: tuple[float, float] | None = None
+
+    for slot in range(first_slot, last_slot + 1):
+        slot_start = float(slot * SLOT_SECONDS)
+        slot_end = slot_start + SLOT_SECONDS
+        band_start = max(window_start_timestamp, slot_start)
+        band_end = min(window_end_timestamp, slot_end)
+        if band_start >= band_end:
+            continue
+
+        if slot in observed_slots:
+            if current_band is not None:
+                bands.append(current_band)
+                current_band = None
+            continue
+
+        if current_band is None:
+            current_band = (band_start, band_end)
+        elif current_band[1] == band_start:
+            current_band = (current_band[0], band_end)
+        else:
+            bands.append(current_band)
+            current_band = (band_start, band_end)
+
+    if current_band is not None:
+        bands.append(current_band)
+    return tuple(bands)
 
 
 def calculate_metrics(
@@ -623,6 +671,42 @@ class PlayerStatsRenderer:
         y = bottom - (observation.online * (bottom - top) // axis_max)
         return x, y
 
+    @staticmethod
+    def _draw_missing_data_bands(
+        draw: ImageDraw.ImageDraw,
+        observations: Sequence[PlayerCountObservation],
+        *,
+        left: int,
+        top: int,
+        right: int,
+        bottom: int,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> None:
+        """Shade only slots without a successful observation behind chart data."""
+
+        if not observations:
+            return
+
+        window_start_timestamp = window_start.timestamp()
+        plot_width = right - left
+        for band_start, band_end in _missing_slot_bands(
+            observations,
+            window_start=window_start,
+            window_end=window_end,
+        ):
+            start_fraction = (band_start - window_start_timestamp) / WINDOW_SECONDS
+            end_fraction = (band_end - window_start_timestamp) / WINDOW_SECONDS
+            start_x = left + int(start_fraction * plot_width)
+            end_x = left + int(end_fraction * plot_width) - 1
+            start_x = max(left + 1, start_x)
+            end_x = min(right - 1, end_x)
+            if start_x <= end_x:
+                draw.rectangle(
+                    (start_x, top + 1, end_x, bottom - 1),
+                    fill=MISSING_DATA_MASK_FILL,
+                )
+
     def _draw_chart(
         self,
         draw: ImageDraw.ImageDraw,
@@ -706,6 +790,17 @@ class PlayerStatsRenderer:
                 anchor="mm",
             )
             return
+
+        self._draw_missing_data_bands(
+            draw,
+            visible,
+            left=left,
+            top=top,
+            right=right,
+            bottom=bottom,
+            window_start=window_start,
+            window_end=window_end,
+        )
 
         previous: PlayerCountObservation | None = None
         previous_point: tuple[int, int] | None = None
@@ -907,13 +1002,19 @@ class PlayerStatsRenderer:
                 size=15,
                 fill="#cbd4cf",
             )
-            draw.line((974, 618, 1006, 618), fill="#78847e", width=2)
+            draw.rounded_rectangle(
+                (974, 608, 1006, 628),
+                radius=2,
+                fill=MISSING_DATA_MASK_FILL,
+                outline="#d98989",
+                width=1,
+            )
             self._draw_text(
                 draw,
                 (1015, 608),
                 self._chart_copy("missing_gap"),
                 size=15,
-                fill="#cbd4cf",
+                fill="#ffd5d5",
             )
 
         try:
