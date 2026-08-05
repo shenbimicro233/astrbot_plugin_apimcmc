@@ -30,8 +30,24 @@ STALE_AFTER = timedelta(hours=24)
 LONG_OFFLINE_AFTER = timedelta(minutes=30)
 WINDOW_SECONDS = int(WINDOW_DURATION.total_seconds())
 MISSING_DATA_MASK_FILL = (184, 36, 36, 104)
-CHART_PANEL_LEFT = 55
+FRAME_LEFT = 32
+FRAME_RIGHT = IMAGE_WIDTH - FRAME_LEFT
+CONTENT_LEFT = 55
+CONTENT_RIGHT = IMAGE_WIDTH - CONTENT_LEFT
+CHART_PANEL_LEFT = CONTENT_LEFT
+CHART_PANEL_RIGHT = CONTENT_RIGHT
+CHART_PANEL_TOP = 232
+CHART_PANEL_BOTTOM = 600
 CHART_PLOT_LEFT = 108
+CHART_PLOT_RIGHT = CHART_PANEL_RIGHT - 30
+CHART_PLOT_TOP = 260
+CHART_PLOT_BOTTOM = 540
+SUMMARY_CARD_LEFT = CONTENT_LEFT
+SUMMARY_CARD_TOP = 128
+SUMMARY_CARD_WIDTH = 256
+SUMMARY_CARD_HEIGHT = 76
+SUMMARY_CARD_GAP = 22
+SUMMARY_CARD_COUNT = 4
 Y_AXIS_LABEL_RIGHT_GAP = 6
 Y_AXIS_LABEL_SIZE = 14
 Y_AXIS_LABEL_MAX_WIDTH = CHART_PLOT_LEFT - Y_AXIS_LABEL_RIGHT_GAP - CHART_PANEL_LEFT
@@ -714,9 +730,14 @@ class PlayerStatsRenderer:
         metrics: ChartMetrics,
         now: datetime,
     ) -> None:
-        left, top, right, bottom = CHART_PLOT_LEFT, 260, 1138, 540
+        left, top, right, bottom = (
+            CHART_PLOT_LEFT,
+            CHART_PLOT_TOP,
+            CHART_PLOT_RIGHT,
+            CHART_PLOT_BOTTOM,
+        )
         draw.rounded_rectangle(
-            (CHART_PANEL_LEFT, 232, 1168, 600),
+            (CHART_PANEL_LEFT, CHART_PANEL_TOP, CHART_PANEL_RIGHT, CHART_PANEL_BOTTOM),
             radius=6,
             fill="#151b19",
             outline="#99ad9e",
@@ -767,7 +788,7 @@ class PlayerStatsRenderer:
         visible = _window_observations(series)
         if metrics.long_offline:
             draw.rounded_rectangle(
-                (CHART_PANEL_LEFT, 232, 1168, 600),
+                (CHART_PANEL_LEFT, CHART_PANEL_TOP, CHART_PANEL_RIGHT, CHART_PANEL_BOTTOM),
                 radius=6,
                 fill=(184, 36, 36, 118),
                 outline=(244, 108, 108, 210),
@@ -873,7 +894,7 @@ class PlayerStatsRenderer:
         draw = ImageDraw.Draw(image, "RGBA")
         self._draw_pixel_texture(draw)
         draw.rounded_rectangle(
-            (32, 45, 1168, 645),
+            (FRAME_LEFT, 45, FRAME_RIGHT, 645),
             radius=6,
             fill="#202724",
             outline="#d6ead5",
@@ -923,11 +944,15 @@ class PlayerStatsRenderer:
             (self._chart_copy("average"), f"{metrics.average:.1f}"),
             (self._chart_copy("coverage"), f"{metrics.observed_buckets}/{metrics.elapsed_buckets}"),
         )
-        card_left, card_top, card_width, gap = 58, 128, 256, 22
         for index, (label, value) in enumerate(cards):
-            x = card_left + index * (card_width + gap)
+            x = SUMMARY_CARD_LEFT + index * (SUMMARY_CARD_WIDTH + SUMMARY_CARD_GAP)
             draw.rounded_rectangle(
-                (x, card_top, x + card_width, card_top + 76),
+                (
+                    x,
+                    SUMMARY_CARD_TOP,
+                    x + SUMMARY_CARD_WIDTH,
+                    SUMMARY_CARD_TOP + SUMMARY_CARD_HEIGHT,
+                ),
                 radius=5,
                 fill="#2d3732",
                 outline="#53665b",
@@ -936,7 +961,7 @@ class PlayerStatsRenderer:
             # Two-row layout: label sits near the top and the value is
             # vertically centered in the remaining card area using the font's
             # bounding box so digits no longer look bottom-heavy.
-            label_top = card_top + 8
+            label_top = SUMMARY_CARD_TOP + 8
             label_value, label_font = self._prepare_text(
                 label,
                 18,
@@ -946,15 +971,17 @@ class PlayerStatsRenderer:
             label_box = draw.textbbox((0, 0), label_value, font=label_font, anchor="la")
             label_height = label_box[3] - label_box[1]
             self._draw_text(draw, (x + 18, label_top), label, size=18, fill="#aebbb4")
-            value_center = int((label_top + label_height + card_top + 76) // 2)
+            value_center = int(
+                (label_top + label_height + SUMMARY_CARD_TOP + SUMMARY_CARD_HEIGHT) // 2
+            )
             self._draw_card_value(
                 draw,
-                x + card_width - 18,
+                x + SUMMARY_CARD_WIDTH - 18,
                 value_center,
                 value,
                 size=34,
                 fill="#8ce67f",
-                max_width=card_width - 36,
+                max_width=SUMMARY_CARD_WIDTH - 36,
             )
 
         self._draw_chart(draw, series, metrics, local_now)
@@ -1069,12 +1096,18 @@ __all__ = [
     "BUNDLED_FUSION_PIXEL_PATH",
     "BUNDLED_MONOCRAFT_PATH",
     "CHART_PANEL_LEFT",
+    "CHART_PANEL_RIGHT",
     "CHART_PLOT_LEFT",
+    "CHART_PLOT_RIGHT",
+    "CHART_PLOT_TOP",
+    "CHART_PLOT_BOTTOM",
     "ChartMetrics",
     "DEFAULT_FONT_CANDIDATES",
     "FUSION_PIXEL_LICENSE_PATH",
     "FUSION_PIXEL_LICENSE_SHA256",
     "FUSION_PIXEL_SHA256",
+    "FRAME_LEFT",
+    "FRAME_RIGHT",
     "IMAGE_HEIGHT",
     "IMAGE_WIDTH",
     "LONG_OFFLINE_AFTER",
@@ -1084,6 +1117,12 @@ __all__ = [
     "PlayerCountRenderer",
     "PlayerStatsRenderer",
     "STALE_AFTER",
+    "SUMMARY_CARD_COUNT",
+    "SUMMARY_CARD_GAP",
+    "SUMMARY_CARD_HEIGHT",
+    "SUMMARY_CARD_LEFT",
+    "SUMMARY_CARD_TOP",
+    "SUMMARY_CARD_WIDTH",
     "TEMP_FILE_PREFIX",
     "TEXT_STYLE_GALACTIC",
     "TEXT_STYLE_MONOCRAFT",
