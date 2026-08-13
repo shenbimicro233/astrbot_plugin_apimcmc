@@ -10,7 +10,7 @@
   - utils.notifier      群消息发送
   - utils.hitokoto      一言
 
-版本: v1.1.1
+版本: v1.1.2
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from .utils.hitokoto import get_hitokoto
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.1.1"
+PLUGIN_VERSION = "1.1.2"
 
 
 @register(
