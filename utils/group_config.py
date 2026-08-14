@@ -28,7 +28,7 @@ DEFAULT_GROUP_CONFIG = {
     "api_source": "",
     "mcmotdapi_host": "",
     "mcmotdapi_ssl": None,
-    "mcmotdapi_enable_srv": None,
+    "enable_srv": True,
     "simple_mode": None,
     "custom_mode": None,
     "custom_fields": None,
@@ -37,14 +37,12 @@ DEFAULT_GROUP_CONFIG = {
 
 def is_srv_port_optional(
     server_type: str,
-    api_source: str,
-    enable_srv: bool | None,
+    enable_srv: bool,
 ) -> bool:
-    """Return whether Java mcmotdapi may resolve the port through SRV."""
+    """Return whether Java may omit the configured port through SRV."""
 
     return (
         server_type == "java"
-        and api_source == "mcmotdapi"
         and enable_srv is True
     )
 
@@ -80,10 +78,12 @@ class GroupConfig:
         self.mcmotdapi_host: str = str(data.get("mcmotdapi_host", "") or "")
         raw_ssl = data.get("mcmotdapi_ssl")
         self.mcmotdapi_ssl: bool | None = None if raw_ssl is None else bool(raw_ssl)
-        raw_enable_srv = data.get("mcmotdapi_enable_srv")
-        self.mcmotdapi_enable_srv: bool | None = (
-            raw_enable_srv if type(raw_enable_srv) is bool else None
-        )
+        raw_enable_srv = data.get("enable_srv")
+        if type(raw_enable_srv) is not bool:
+            # Legacy per-group key migrates to the unified field on read;
+            # missing/null/invalid values default to True (the old global default).
+            raw_enable_srv = data.get("mcmotdapi_enable_srv")
+        self.enable_srv: bool = raw_enable_srv if type(raw_enable_srv) is bool else True
         raw_simple = data.get("simple_mode")
         self.simple_mode: bool | None = None if raw_simple is None else bool(raw_simple)
         raw_custom = data.get("custom_mode")
@@ -104,7 +104,7 @@ class GroupConfig:
             "api_source": self.api_source,
             "mcmotdapi_host": self.mcmotdapi_host,
             "mcmotdapi_ssl": self.mcmotdapi_ssl,
-            "mcmotdapi_enable_srv": self.mcmotdapi_enable_srv,
+            "enable_srv": self.enable_srv,
             "simple_mode": self.simple_mode,
             "custom_mode": self.custom_mode,
             "custom_fields": self.custom_fields,

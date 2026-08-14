@@ -18,13 +18,14 @@ from .base_client import BaseMcClient, format_server_address, normalize_player_c
 _MCSTATUS_BASE_URL = URL("https://api.mcstatus.io")
 
 
-def _build_status_url(server_type: str, server_ip: str, server_port: int) -> URL:
+def _build_status_url(server_type: str, server_ip: str, server_port: int | None) -> URL:
     """Build a revision-2 mcstatus URL with an encoded address path segment.
 
     Args:
         server_type: Requested Minecraft edition.
         server_ip: Configured domain, IPv4 address, or IPv6 literal.
-        server_port: Configured Minecraft port.
+        server_port: Configured Minecraft port, omitted for host-only SRV
+            paths.
 
     Returns:
         The request URL without query parameters.
@@ -43,7 +44,7 @@ class McStatusClient(BaseMcClient):
 
     async def _fetch_raw_data(self) -> dict | None:
         """调用 mcstatus.io API，返回原始 JSON 数据。"""
-        if not self.server_ip or not self.server_port:
+        if not self.server_ip:
             return None
 
         params = {"timeout": "5"}
@@ -79,14 +80,9 @@ class McStatusClient(BaseMcClient):
             if counts is None:
                 return None
             online_players, max_players = counts
-            players_info = data["players"]
-            player_list = players_info.get("list", [])
-            if not isinstance(player_list, list):
-                player_list = []
         else:
             online_players = 0
             max_players = 0
-            player_list = []
 
         server_status = "online" if online else "offline"
 
@@ -125,7 +121,6 @@ class McStatusClient(BaseMcClient):
             "protocol": protocol,
             "online": online_players,
             "max": max_players,
-            "players": player_list,
             "motd": motd_clean,
             "id": data.get("id", "未知"),
             "port": data.get("port", self.server_port),

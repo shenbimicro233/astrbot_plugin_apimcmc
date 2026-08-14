@@ -153,11 +153,11 @@ def normalize_target_signature(signature: Sequence[object]) -> TargetSignature:
 
     srv_enabled = signature[6]
     if type(srv_enabled) is not bool:
-        raise TypeError("mcmotdapi_enable_srv must be a boolean")
+        raise TypeError("enable_srv must be a boolean")
     if not srv_enabled:
-        raise ValueError("seven-value target signatures require mcmotdapi_enable_srv=true")
-    if api_source != "mcmotdapi" or server_type != "java":
-        raise ValueError("SRV-enabled target signatures require mcmotdapi Java")
+        raise ValueError("seven-value target signatures require enable_srv=true")
+    if api_source not in {"mcmotdapi", "local"} or server_type != "java":
+        raise ValueError("SRV-enabled target signatures require mcmotdapi/local Java")
     raw_port = signature[1]
     if raw_port is None:
         port = None

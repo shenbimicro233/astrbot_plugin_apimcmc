@@ -24,7 +24,7 @@ from ..utils.group_config import (
 RunLogFn = Callable[[str, str, str | None], None]
 
 ALLOWED_SERVER_TYPES = {"java", "bedrock"}
-ALLOWED_API_SOURCES = {"", "mcstatus", "mcmotdapi"}
+ALLOWED_API_SOURCES = {"", "mcstatus", "mcmotdapi", "local"}
 ALLOWED_CUSTOM_FIELDS = set(CUSTOM_FIELD_ORDER) | {"hitokoto"}
 
 
@@ -148,15 +148,29 @@ class WebApiHandler:
 
         api_source = cls._parse_string(body, "api_source").lower()
         if api_source not in ALLOWED_API_SOURCES:
-            raise ValueError("api_source 必须为空、mcstatus 或 mcmotdapi")
+            raise ValueError("api_source 必须为空、mcstatus、mcmotdapi 或 local")
 
         enable_srv = cls._parse_bool(
             body,
-            "mcmotdapi_enable_srv",
-            default=None,
+            "enable_srv",
+            default=True,
+            allow_none=False,
         )
-        allow_empty_port = is_srv_port_optional(server_type, api_source, enable_srv)
-        port_value = body.get("server_port", DEFAULT_GROUP_CONFIG["server_port"])
+        assert enable_srv is not None
+        port_value = body.get("server_port")
+        if is_srv_port_optional(server_type, enable_srv):
+            if port_value is not None and not (
+                isinstance(port_value, str) and not port_value.strip()
+            ):
+                raise ValueError("server_port 必须留空")
+            server_port = None
+        else:
+            if port_value is None:
+                port_value = DEFAULT_GROUP_CONFIG["server_port"]
+            server_port = cls._parse_optional_port(
+                port_value,
+                allow_empty=False,
+            )
 
         custom_fields = body.get("custom_fields")
         if custom_fields is not None:
@@ -176,10 +190,7 @@ class WebApiHandler:
             )
             or DEFAULT_GROUP_CONFIG["name"],
             "server_ip": server_ip,
-            "server_port": cls._parse_optional_port(
-                port_value,
-                allow_empty=allow_empty_port,
-            ),
+            "server_port": server_port,
             "server_type": server_type,
             "enabled": cls._parse_bool(
                 body,
@@ -194,7 +205,7 @@ class WebApiHandler:
                 "mcmotdapi_ssl",
                 default=None,
             ),
-            "mcmotdapi_enable_srv": enable_srv,
+            "enable_srv": enable_srv,
             "simple_mode": cls._parse_bool(body, "simple_mode", default=None),
             "custom_mode": cls._parse_bool(body, "custom_mode", default=None),
             "custom_fields": custom_fields,

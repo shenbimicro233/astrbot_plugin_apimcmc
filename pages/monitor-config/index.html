@@ -502,8 +502,15 @@
           <label for="f_type">服务器类型</label>
           <select id="f_type">
             <option value="bedrock">基岩版 (Bedrock)</option>
-            <option value="java">Java 版</option>
+            <option value="java_srv">Java 版（启用 SRV 解析）</option>
+            <option value="java_no_srv">Java 版（禁用 SRV 解析）</option>
           </select>
+          <span id="mcstatus_srv_hint" style="display:none;font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:4px;">
+            mcstatus.io 服务端会自动解析已有 SRV 记录的域名，禁用仅对无 SRV 记录的域名生效。
+          </span>
+          <span id="local_srv_hint" style="display:none;font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:4px;">
+            启用后优先解析 _minecraft._tcp SRV 记录；本地直连要求机器人主机可访问目标服务器端口。
+          </span>
         </div>
         <div class="form-group">
           <label for="f_api_source">API 查询源</label>
@@ -511,6 +518,7 @@
             <option value="">全局默认</option>
             <option value="mcstatus">mcstatus.io</option>
             <option value="mcmotdapi">mcmotdapi</option>
+            <option value="local">本地直连</option>
           </select>
         </div>
         <div class="form-group" style="justify-content:flex-end;display:flex;flex-direction:column;">
@@ -532,14 +540,6 @@
             <label for="f_mcmotdapi_ssl">启用 HTTPS</label>
           </div>
         </div>
-        <div id="mcmotdapi_srv_group" class="form-group" style="display:none;">
-          <label for="f_mcmotdapi_enable_srv">Java SRV 解析</label>
-          <select id="f_mcmotdapi_enable_srv">
-            <option value="">继承全局设置</option>
-            <option value="true">启用</option>
-            <option value="false">禁用</option>
-          </select>
-        </div>
       </div>
 
       <!-- 消息格式 -->
@@ -557,7 +557,6 @@
             <label class="field-chk"><input type="checkbox" value="version"> 游戏版本</label>
             <label class="field-chk"><input type="checkbox" value="protocol"> 协议版本</label>
             <label class="field-chk"><input type="checkbox" value="player_count"> 在线/最大玩家</label>
-            <label class="field-chk"><input type="checkbox" value="player_list"> 玩家列表</label>
             <label class="field-chk"><input type="checkbox" value="motd"> MOTD 描述</label>
             <label class="field-chk"><input type="checkbox" value="software"> 服务端软件</label>
             <label class="field-chk"><input type="checkbox" value="type_label"> 服务器类型</label>

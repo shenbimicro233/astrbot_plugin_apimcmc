@@ -14,9 +14,9 @@
   "api_source": {
     "description": "API查询源",
     "type": "string",
-    "hint": "选择服务器状态查询API源",
-    "default": "mcstatus",
-    "options": ["mcstatus", "mcmotdapi"]
+    "hint": "选择服务器状态查询源；本地直连由机器人主机直接查询服务器",
+    "default": "local",
+    "options": ["mcstatus", "mcmotdapi", "local"]
   },
   "mcmotdapi_host": {
     "description": "mcmotdapi 服务地址",
@@ -28,12 +28,6 @@
     "description": "mcmotdapi 启用 HTTPS",
     "type": "bool",
     "hint": "仅当 API查询源 为 mcmotdapi 时生效。自部署内网可关闭",
-    "default": true
-  },
-  "mcmotdapi_enable_srv": {
-    "description": "mcmotdapi 启用 Java SRV 解析",
-    "type": "bool",
-    "hint": "仅当 API查询源 为 mcmotdapi 且服务器类型为 Java 时生效。启用后会解析 _minecraft._tcp SRV 记录",
     "default": true
   },
   "simple_mode": {

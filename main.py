@@ -10,7 +10,7 @@
   - utils.notifier      群消息发送
   - utils.hitokoto      一言
 
-版本: v1.1.2
+版本: v1.2.0
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from .utils.hitokoto import get_hitokoto
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.1.2"
+PLUGIN_VERSION = "1.2.0"
 
 
 @register(
@@ -57,10 +57,9 @@ class MyPlugin(Star):
         self.enable_auto = self.config.get("enable_auto_monitor", False)
 
         # API 源配置
-        self.api_source = self.config.get("api_source", "mcstatus")
+        self.api_source = self.config.get("api_source", "local")
         self.mcmotdapi_host = self.config.get("mcmotdapi_host", "motd.minebbs.com")
         self.mcmotdapi_ssl = self.config.get("mcmotdapi_ssl", True)
-        self.mcmotdapi_enable_srv = self.config.get("mcmotdapi_enable_srv", True)
         self.simple_mode = self.config.get("simple_mode", False)
         self.statistics_fonts = self.config.get("statistics_fonts", [])
         self.statistics_text_style = normalize_text_style(
@@ -87,7 +86,6 @@ class MyPlugin(Star):
                 api_source=self.api_source,
                 mcmotdapi_host=self.mcmotdapi_host,
                 mcmotdapi_ssl=self.mcmotdapi_ssl,
-                mcmotdapi_enable_srv=self.mcmotdapi_enable_srv,
                 simple_mode=self.simple_mode,
             ),
             stats_store=self.stats_store,
@@ -262,7 +260,7 @@ class MyPlugin(Star):
                 server_name=cfg.name,
                 mcmotdapi_host=effective_host,
                 mcmotdapi_ssl=effective_ssl,
-                mcmotdapi_enable_srv=effective_enable_srv,
+                enable_srv=effective_enable_srv,
             ) as client:
                 server_data = await client.get_server_info()
             if server_data is None:

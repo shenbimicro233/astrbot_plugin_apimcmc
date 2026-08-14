@@ -38,7 +38,6 @@ class MonitorConfig:
     api_source: str = "mcstatus"
     mcmotdapi_host: str = "motd.minebbs.com"
     mcmotdapi_ssl: bool = True
-    mcmotdapi_enable_srv: bool = True
     simple_mode: bool = False
 
 
@@ -61,7 +60,6 @@ class MonitorService:
         self.api_source = cfg.api_source
         self.mcmotdapi_host = cfg.mcmotdapi_host
         self.mcmotdapi_ssl = cfg.mcmotdapi_ssl
-        self.mcmotdapi_enable_srv = cfg.mcmotdapi_enable_srv
         self.simple_mode = cfg.simple_mode
         self._run_log_fn = run_log
         self._run_log_buffer_only: RunLogFn | None = None
@@ -121,6 +119,8 @@ class MonitorService:
     def _fmt_api_source(source: str, host: str = "") -> str:
         if source == "mcmotdapi":
             return f"mcmotdapi({host or 'motd.minebbs.com'})"
+        if source == "local":
+            return "本地直连"
         return "mcstatus.io"
 
     @staticmethod
@@ -144,7 +144,7 @@ class MonitorService:
         self,
         cfg: GroupConfig,
     ) -> tuple[str, str, bool, bool]:
-        """Resolve the group query policy against global defaults."""
+        """Resolve the group query policy; SRV is per-group only and defaults to True."""
 
         source, host, ssl = self._resolve_effective_cfg(
             cfg,
@@ -152,8 +152,7 @@ class MonitorService:
             self.mcmotdapi_host,
             self.mcmotdapi_ssl,
         )
-        group_enable_srv = getattr(cfg, "mcmotdapi_enable_srv", None)
-        enable_srv = self.mcmotdapi_enable_srv if group_enable_srv is None else group_enable_srv
+        enable_srv = getattr(cfg, "enable_srv", True)
         return source, host, ssl, enable_srv
 
     def format_effective_api_source(self, cfg: GroupConfig) -> str:
@@ -161,7 +160,7 @@ class MonitorService:
 
         source, host, _, enable_srv = self.resolve_effective_config(cfg)
         display = self._fmt_api_source(source, host)
-        if source == "mcmotdapi" and cfg.server_type == "java":
+        if source in {"mcmotdapi", "local"} and cfg.server_type == "java":
             srv_state = "enabled" if enable_srv else "disabled"
             return f"{display} | Java SRV: {srv_state}"
         return display
@@ -172,9 +171,9 @@ class MonitorService:
         has_query_identity = getattr(cfg, "has_query_identity", cfg.is_valid)
         if not has_query_identity():
             return False
-        source, _, _, enable_srv = self.resolve_effective_config(cfg)
+        _source, _, _, enable_srv = self.resolve_effective_config(cfg)
         if cfg.server_port is None:
-            return is_srv_port_optional(cfg.server_type, source, enable_srv)
+            return is_srv_port_optional(cfg.server_type, enable_srv)
         return cfg.is_valid()
 
     def _get_query_enabled_groups(self) -> dict[str, GroupConfig]:
@@ -192,7 +191,7 @@ class MonitorService:
     ) -> TargetSignature:
         """返回会影响服务器查询结果的配置签名。"""
         source, host, ssl, enable_srv = self.resolve_effective_config(cfg)
-        if source == "mcmotdapi" and cfg.server_type == "java" and enable_srv is True:
+        if source in {"mcmotdapi", "local"} and cfg.server_type == "java" and enable_srv is True:
             return (
                 cfg.server_ip,
                 cfg.server_port,
@@ -308,7 +307,7 @@ class MonitorService:
             server_name=cfg.name,
             mcmotdapi_host=effective_host,
             mcmotdapi_ssl=effective_ssl,
-            mcmotdapi_enable_srv=effective_enable_srv,
+            enable_srv=effective_enable_srv,
         )
 
     def cache_group_session(self, group_id: str | None, umo: str | None) -> str | None:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 from ipaddress import IPv6Address
 
@@ -108,16 +109,16 @@ class McMotdApiClient(BaseMcClient):
         server_name: str = "Minecraft服务器",
         api_host: str = "motd.minebbs.com",
         use_ssl: bool = True,
-        mcmotdapi_enable_srv: bool = True,
+        enable_srv: bool = True,
     ):
         super().__init__(server_ip, server_port, server_type, server_name)
         self.api_host = api_host
         self.use_ssl = use_ssl
-        self.mcmotdapi_enable_srv = mcmotdapi_enable_srv
+        self.enable_srv = enable_srv
 
     async def _fetch_raw_data(self) -> dict | None:
         """调用 mcmotdapi，返回原始 JSON 数据。"""
-        allow_missing_port = self.server_type == "java" and self.mcmotdapi_enable_srv
+        allow_missing_port = self.server_type == "java" and self.enable_srv
         if not self.server_ip or (self.server_port is None and not allow_missing_port):
             return None
 
@@ -129,7 +130,8 @@ class McMotdApiClient(BaseMcClient):
         if self.server_port is not None:
             params["port"] = str(self.server_port)
         if self.server_type == "java":
-            params["srv"] = "true" if self.mcmotdapi_enable_srv else "false"
+            params["srv"] = "true" if self.enable_srv else "false"
+        params["_"] = str(int(time.time() * 1000))
 
         try:
             api_url = _build_api_url(self.api_host, self.use_ssl)
@@ -156,16 +158,9 @@ class McMotdApiClient(BaseMcClient):
             if counts is None:
                 return None
             online_players, max_players = counts
-            players_info = data["players"]
-            sample = players_info.get("sample", "")
-            if isinstance(sample, str) and sample.strip() and sample != "无":
-                player_list = [player.strip() for player in sample.split(",") if player.strip()]
-            else:
-                player_list = []
         else:
             online_players = 0
             max_players = 0
-            player_list = []
 
         server_status = status
 
@@ -207,7 +202,6 @@ class McMotdApiClient(BaseMcClient):
             "protocol": protocol,
             "online": online_players,
             "max": max_players,
-            "players": player_list,
             "motd": motd,
             "id": "未知",
             "port": self.server_port,
