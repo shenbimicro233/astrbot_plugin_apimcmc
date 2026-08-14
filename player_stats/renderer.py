@@ -264,6 +264,13 @@ def _missing_slot_bands(
     observed_slots = {observation.slot for observation in observations}
     first_slot = int(window_start_timestamp // SLOT_SECONDS)
     last_slot = int(window_end_timestamp // SLOT_SECONDS)
+    # Skip partial slots at window edges to avoid spurious red bands.
+    # The window may span 97 slot boundaries while only 96 observations
+    # exist, causing the clipped leading/trailing slot to appear missing.
+    if first_slot * SLOT_SECONDS < window_start_timestamp:
+        first_slot += 1
+    if (last_slot + 1) * SLOT_SECONDS > window_end_timestamp:
+        last_slot -= 1
     bands: list[tuple[float, float]] = []
     current_band: tuple[float, float] | None = None
 
