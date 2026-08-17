@@ -1,0 +1,103 @@
+name: Bug 报告
+description: 报告插件中的错误或异常行为
+title: "[Bug] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽可能详细地填写以下信息。
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: 插件版本
+      description: 当前安装的插件版本（可在 WebUI 插件页查看）
+      options:
+        - "1.2.0"
+        - "1.1.2"
+        - "1.1.1"
+        - "其他（更旧版本）"
+    validations:
+      required: true
+
+  - type: input
+    id: astrbot_version
+    attributes:
+      label: AstrBot 版本
+      description: AstrBot 运行版本
+      placeholder: "例如 4.26.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 适配平台
+      options:
+        - aiocqhttp
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: query_source
+    attributes:
+      label: 使用的查询源
+      options:
+        - mcstatus.io
+        - mcmotdapi
+        - 本地直连
+        - 不确定
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰描述你遇到的问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请按步骤描述如何触发该问题
+      placeholder: |
+        1. 进入 WebUI
+        2. 配置服务器...
+        3. 发送 /查询
+        4. 看到错误...
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望插件应该如何表现
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 错误信息
+      description: 贴上 AstrBot 日志或控制台报错
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      description: 操作系统、Python 版本等
+      placeholder: |
+        - OS: Windows 11
+        - Python: 3.10
+    validations:
+      required: false

@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: README & 常见问题
+    url: https://github.com/shenbimicro233/astrbot_plugin_apimcmc#常见问题
+    about: 提问前请先查阅 README 和常见问题

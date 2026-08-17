@@ -1,0 +1,46 @@
+name: 问题咨询
+description: 配置问题、使用疑问、求助
+title: "[Q] "
+labels: ["question"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提问前请先查看 [README 常见问题](https://github.com/shenbimicro233/astrbot_plugin_apimcmc#常见问题) 和已有的 Issues。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 问题描述
+      description: 你遇到了什么问题或有什么疑问
+    validations:
+      required: true
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: 插件版本
+      options:
+        - "1.2.0"
+        - "1.1.2"
+        - "1.1.1"
+        - "其他（更旧版本）"
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置（可选）
+      description: 贴上 WebUI 配置截图或相关配置项（注意隐藏敏感信息）
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（可选）
+      render: text
+    validations:
+      required: false
