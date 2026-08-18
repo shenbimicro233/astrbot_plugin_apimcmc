@@ -8,12 +8,22 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .font_resources import (
+    BUNDLED_UNIFONT_PATH,
+    UNIFONT_GPL_LICENSE_PATH,
+    UNIFONT_GPL_LICENSE_SHA256,
+    UNIFONT_LICENSE_PATH,
+    UNIFONT_LICENSE_SHA256,
+    UNIFONT_SHA256,
+    asset_matches,
+    text_asset_matches,
+    load_unifont_font,
+)
 from .model import (
     PlayerCountObservation,
     PlayerCountWindowSeries,
@@ -57,14 +67,15 @@ MONOCRAFT_LICENSE_PATH = Path(__file__).resolve().parent / "assets" / "fonts" / 
 MONOCRAFT_SHA256 = "262e31822e0a75be567b02320bfa092143d871e8a273e529d1c5ab0c04cd215f"
 MONOCRAFT_LICENSE_SHA256 = "f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1"
 
-BUNDLED_FUSION_PIXEL_PATH = (
-    Path(__file__).resolve().parent / "assets" / "fonts" / "fusion-pixel-10px-monospaced-ja.ttf"
-)
-FUSION_PIXEL_LICENSE_PATH = (
-    Path(__file__).resolve().parent / "assets" / "fonts" / "OFL-FusionPixel.txt"
-)
-FUSION_PIXEL_SHA256 = "a476f9fc45dbd2b8b292f6264dfd0aa1a5e9e4ee464c819f306c5e0ee141b227"
-FUSION_PIXEL_LICENSE_SHA256 = "bc518cf64b8032c07690f33cc270c35c179255a6ac8efa7c165ebae7e8f76a63"
+# 兼容旧版本导入；普通中文字体实际为 Unifont。
+BUNDLED_FUSION_PIXEL_PATH = BUNDLED_UNIFONT_PATH
+FUSION_PIXEL_LICENSE_PATH = UNIFONT_LICENSE_PATH
+FUSION_PIXEL_SHA256 = UNIFONT_SHA256
+FUSION_PIXEL_LICENSE_SHA256 = UNIFONT_LICENSE_SHA256
+_DEFAULT_UNIFONT_PATH = BUNDLED_UNIFONT_PATH
+_DEFAULT_UNIFONT_LICENSE_PATH = UNIFONT_LICENSE_PATH
+_DEFAULT_UNIFONT_SHA256 = UNIFONT_SHA256
+_DEFAULT_UNIFONT_LICENSE_SHA256 = UNIFONT_LICENSE_SHA256
 
 TEXT_STYLE_MONOCRAFT = "monocraft"
 TEXT_STYLE_GALACTIC = "galactic"
@@ -264,9 +275,8 @@ def _missing_slot_bands(
     observed_slots = {observation.slot for observation in observations}
     first_slot = int(window_start_timestamp // SLOT_SECONDS)
     last_slot = int(window_end_timestamp // SLOT_SECONDS)
-    # Skip partial slots at window edges to avoid spurious red bands.
-    # The window may span 97 slot boundaries while only 96 observations
-    # exist, causing the clipped leading/trailing slot to appear missing.
+    # 跳过窗口边缘的不完整时间槽，避免绘制误导性的红色缺失带。
+    # 窗口可能跨越 97 个时间槽边界，但实际只有 96 条观测，导致被裁剪的首尾时间槽看似缺失。
     if first_slot * SLOT_SECONDS < window_start_timestamp:
         first_slot += 1
     if (last_slot + 1) * SLOT_SECONDS > window_end_timestamp:
@@ -366,18 +376,16 @@ class PlayerStatsRenderer:
                 str(candidate) for candidate in configured if str(candidate).strip()
             ]
         else:
-            # Persisted AstrBot configuration is user-editable. Treat a
-            # malformed fallback list like an omitted value so it cannot stop
-            # plugin construction before the renderer can apply its defaults.
+            # 持久化的 AstrBot 配置可由用户编辑。格式错误的字体回退列表按未填写处理，
+            # 避免在渲染器应用默认值前阻断插件初始化。
             self.font_candidates = list(DEFAULT_FONT_CANDIDATES)
         self._logger = logger
-        # Pillow's bundled stubs model FreeTypeFont separately from ImageFont;
-        # the renderer intentionally accepts either implementation.
+        # Pillow 自带存根将 FreeTypeFont 与 ImageFont 分开建模；渲染器有意接受两种实现。
         self._font_cache: dict[tuple[int, bool], Any] = {}
         self._monocraft_cache: dict[int, Any] = {}
-        self._fusion_cache: dict[int, Any] = {}
+        self._unifont_cache: dict[int, Any] = {}
         self._bundled_assets_valid: bool | None = None
-        self._fusion_assets_valid: bool | None = None
+        self._unifont_assets_valid: bool | None = None
 
     @staticmethod
     def _font_supports_cjk(font: Any) -> bool:
@@ -398,10 +406,15 @@ class PlayerStatsRenderer:
 
         return self._monocraft_font(18) is not None
 
-    def has_bundled_fusion_pixel(self) -> bool:
-        """Return whether the bundled Fusion Pixel font and license are usable."""
+    def has_bundled_unifont(self) -> bool:
+        """返回普通中文模式所需的 Unifont 是否可用。"""
 
-        return self._fusion_pixel_font(18) is not None
+        return self._unifont_font(18) is not None
+
+    def has_bundled_fusion_pixel(self) -> bool:
+        """兼容旧接口；返回 Unifont 是否可用。"""
+
+        return self.has_bundled_unifont()
 
     @property
     def requires_bundled_monocraft(self) -> bool:
@@ -410,27 +423,24 @@ class PlayerStatsRenderer:
         return self.text_style == TEXT_STYLE_GALACTIC
 
     @property
-    def requires_bundled_fusion_pixel(self) -> bool:
-        """Return whether the selected style normally uses bundled Fusion Pixel."""
+    def requires_bundled_unifont(self) -> bool:
+        """返回当前样式是否需要内置 Unifont。"""
 
         return self.text_style == TEXT_STYLE_MONOCRAFT
 
+    @property
+    def requires_bundled_fusion_pixel(self) -> bool:
+        """兼容旧接口；普通中文样式现在需要内置 Unifont。"""
+
+        return self.requires_bundled_unifont
+
     @staticmethod
     def _asset_matches(path: Path, expected_hash: str) -> bool:
-        try:
-            digest = sha256(path.read_bytes()).hexdigest()
-        except OSError:
-            return False
-        return digest == expected_hash
+        return asset_matches(path, expected_hash)
 
     @staticmethod
     def _text_asset_matches(path: Path, expected_hash: str) -> bool:
-        try:
-            content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            return False
-        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
-        return sha256(normalized.encode("utf-8")).hexdigest() == expected_hash
+        return text_asset_matches(path, expected_hash)
 
     def _bundled_assets_are_valid(self) -> bool:
         cached = self._bundled_assets_valid
@@ -446,19 +456,18 @@ class PlayerStatsRenderer:
         self._bundled_assets_valid = valid
         return valid
 
-    def _fusion_assets_are_valid(self) -> bool:
-        cached = self._fusion_assets_valid
+    def _unifont_assets_are_valid(self) -> bool:
+        cached = self._unifont_assets_valid
         if cached is not None:
             return cached
-        valid = self._asset_matches(
-            BUNDLED_FUSION_PIXEL_PATH,
-            FUSION_PIXEL_SHA256,
-        ) and self._text_asset_matches(
-            FUSION_PIXEL_LICENSE_PATH,
-            FUSION_PIXEL_LICENSE_SHA256,
-        )
-        self._fusion_assets_valid = valid
+        valid = self._unifont_font(18) is not None
+        self._unifont_assets_valid = valid
         return valid
+
+    def _fusion_assets_are_valid(self) -> bool:
+        """兼容旧内部调用；校验目标已改为 Unifont。"""
+
+        return self._unifont_assets_are_valid()
 
     def _load_monocraft_font(self, size: int) -> Any | None:
         if not self._bundled_assets_are_valid():
@@ -468,13 +477,45 @@ class PlayerStatsRenderer:
         except (OSError, ValueError):
             return None
 
+    def _load_unifont_font(self, size: int) -> Any | None:
+        font_path = BUNDLED_UNIFONT_PATH
+        font_hash = UNIFONT_SHA256
+        license_path = UNIFONT_LICENSE_PATH
+        license_hash = UNIFONT_LICENSE_SHA256
+        if (
+            BUNDLED_UNIFONT_PATH == _DEFAULT_UNIFONT_PATH
+            and BUNDLED_FUSION_PIXEL_PATH != _DEFAULT_UNIFONT_PATH
+        ):
+            font_path = BUNDLED_FUSION_PIXEL_PATH
+        if (
+            UNIFONT_SHA256 == _DEFAULT_UNIFONT_SHA256
+            and FUSION_PIXEL_SHA256 != _DEFAULT_UNIFONT_SHA256
+        ):
+            font_hash = FUSION_PIXEL_SHA256
+        if (
+            UNIFONT_LICENSE_PATH == _DEFAULT_UNIFONT_LICENSE_PATH
+            and FUSION_PIXEL_LICENSE_PATH != _DEFAULT_UNIFONT_LICENSE_PATH
+        ):
+            license_path = FUSION_PIXEL_LICENSE_PATH
+        if (
+            UNIFONT_LICENSE_SHA256 == _DEFAULT_UNIFONT_LICENSE_SHA256
+            and FUSION_PIXEL_LICENSE_SHA256 != _DEFAULT_UNIFONT_LICENSE_SHA256
+        ):
+            license_hash = FUSION_PIXEL_LICENSE_SHA256
+        return load_unifont_font(
+            size,
+            font_path=font_path,
+            font_hash=font_hash,
+            license_path=license_path,
+            license_hash=license_hash,
+            gpl_license_path=UNIFONT_GPL_LICENSE_PATH,
+            gpl_license_hash=UNIFONT_GPL_LICENSE_SHA256,
+        )
+
     def _load_fusion_pixel_font(self, size: int) -> Any | None:
-        if not self._fusion_assets_are_valid():
-            return None
-        try:
-            return ImageFont.truetype(str(BUNDLED_FUSION_PIXEL_PATH), size=size)
-        except (OSError, ValueError):
-            return None
+        """兼容旧内部调用；加载目标已改为 Unifont。"""
+
+        return self._load_unifont_font(size)
 
     def _log(self, level: str, message: str) -> None:
         if callable(self._logger) and not isinstance(self._logger, logging.Logger):
@@ -532,14 +573,19 @@ class PlayerStatsRenderer:
             self._monocraft_cache[size] = font
         return font
 
-    def _fusion_pixel_font(self, size: int) -> Any | None:
-        cached = self._fusion_cache.get(size)
+    def _unifont_font(self, size: int) -> Any | None:
+        cached = self._unifont_cache.get(size)
         if cached is not None:
             return cached
-        font = self._load_fusion_pixel_font(size)
+        font = self._load_unifont_font(size)
         if font is not None:
-            self._fusion_cache[size] = font
+            self._unifont_cache[size] = font
         return font
+
+    def _fusion_pixel_font(self, size: int) -> Any | None:
+        """兼容旧内部调用；返回已验证的 Unifont。"""
+
+        return self._unifont_font(size)
 
     def _prepare_text(
         self,
@@ -551,9 +597,9 @@ class PlayerStatsRenderer:
     ) -> tuple[str, Any]:
         value = str(text)
         if self.text_style == TEXT_STYLE_MONOCRAFT:
-            fusion_font = self._fusion_pixel_font(size)
-            if fusion_font is not None:
-                return value, fusion_font
+            unifont = self._unifont_font(size)
+            if unifont is not None:
+                return value, unifont
             return value, self._font(size, bold=bold)
 
         if self.text_style == TEXT_STYLE_SYSTEM:
@@ -965,9 +1011,7 @@ class PlayerStatsRenderer:
                 outline="#53665b",
                 width=2,
             )
-            # Two-row layout: label sits near the top and the value is
-            # vertically centered in the remaining card area using the font's
-            # bounding box so digits no longer look bottom-heavy.
+            # 两行布局：标签靠近顶部，数值根据字体边界框在卡片剩余区域垂直居中，避免数字视觉上偏下。
             label_top = SUMMARY_CARD_TOP + 8
             label_value, label_font = self._prepare_text(
                 label,
@@ -1100,6 +1144,7 @@ class PlayerStatsRenderer:
 PlayerCountRenderer = PlayerStatsRenderer
 
 __all__ = [
+    "BUNDLED_UNIFONT_PATH",
     "BUNDLED_FUSION_PIXEL_PATH",
     "BUNDLED_MONOCRAFT_PATH",
     "CHART_PANEL_LEFT",
@@ -1135,6 +1180,11 @@ __all__ = [
     "TEXT_STYLE_MONOCRAFT",
     "TEXT_STYLE_SYSTEM",
     "TextStyle",
+    "UNIFONT_GPL_LICENSE_PATH",
+    "UNIFONT_GPL_LICENSE_SHA256",
+    "UNIFONT_LICENSE_PATH",
+    "UNIFONT_LICENSE_SHA256",
+    "UNIFONT_SHA256",
     "WINDOW_SECONDS",
     "Y_AXIS_LABEL_MAX_WIDTH",
     "Y_AXIS_LABEL_SIZE",

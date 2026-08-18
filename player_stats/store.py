@@ -52,9 +52,8 @@ class PlayerStatsStore:
             from ..utils.group_config import CONFIG_DATA_DIR
         except (ImportError, ModuleNotFoundError, ValueError):
             try:
-                # Standalone tools and tests may import ``player_stats`` as a
-                # top-level package instead of through the AstrBot plugin
-                # package, where the relative import above has no parent.
+                # 独立工具和测试可能将 ``player_stats`` 作为顶层包导入，
+                # 而不是通过 AstrBot 插件包导入，此时上面的相对导入没有父包。
                 from utils.group_config import CONFIG_DATA_DIR
             except (ImportError, ModuleNotFoundError, ValueError):
                 return Path(DEFAULT_FILENAME)
@@ -243,8 +242,7 @@ class PlayerStatsStore:
                     f"跳过组 {group_id} 的无效玩家统计桶 {raw_bucket!r}: {exc}",
                 )
 
-        # A daylight-saving fall-back can map two wall-clock buckets to the
-        # same absolute slot; keep the first (earliest wall-clock) sample.
+        # 夏令时回拨可能将两个墙上时钟时间槽映射到同一绝对时间槽；保留第一个（墙上时钟最早的）样本。
         by_slot: dict[int, PlayerCountObservation] = {}
         for bucket in sorted(by_bucket):
             observation = by_bucket[bucket]
@@ -467,7 +465,7 @@ class PlayerStatsStore:
         with self._lock:
             return dict(self._groups)
 
-    # Compatibility aliases for callers and focused tests.
+    # 为调用方和专项测试保留兼容别名。
     get_series = get_window
     clear_group = delete_group
 

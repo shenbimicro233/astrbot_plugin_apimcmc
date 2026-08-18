@@ -100,7 +100,7 @@
     min-height: 100vh;
   }
 
-  /* Header */
+  /* 页头 */
   .page-header {
     display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
     justify-content: space-between; margin-bottom: 24px;
@@ -131,7 +131,7 @@
   .btn-sm { padding: 6px 12px; font-size: 13px; border-radius: 8px; }
   .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-  /* Stats */
+  /* 统计 */
   .stats-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px;
     margin-bottom: 22px;
@@ -149,7 +149,7 @@
   .stat-value.off { color: var(--text-secondary); }
   .stat-value.warn { color: var(--warning); }
 
-  /* Toolbar */
+  /* 工具栏 */
   .toolbar {
     display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
     justify-content: space-between; margin-bottom: 16px;
@@ -178,7 +178,7 @@
   .chip.active { background: var(--primary-bg); color: #fff; border-color: var(--primary); }
   .chip:hover:not(.active) { background: var(--primary-soft); color: var(--primary); }
 
-  /* Cards grid */
+  /* 卡片网格 */
   .cards-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;
     margin-bottom: 28px;
@@ -216,7 +216,7 @@
   .badge-java { background: var(--warning-soft); color: var(--warning-strong); }
   .badge-bedrock { background: var(--primary-soft); color: var(--primary); }
 
-  /* Empty state */
+  /* 空状态 */
   .empty-state {
     text-align: center; padding: 56px 24px; color: var(--text-secondary);
     background: var(--panel); border-radius: var(--radius); border: 1px dashed var(--border);
@@ -226,7 +226,7 @@
   .empty-state h3 { font-size: 16px; color: var(--text); margin-bottom: 6px; }
   .empty-state p { font-size: 14px; }
 
-  /* Skeleton */
+  /* 骨架屏 */
   .skeleton {
     background: linear-gradient(90deg, var(--skeleton-a) 25%, var(--skeleton-b) 50%, var(--skeleton-a) 75%);
     background-size: 200% 100%; border-radius: 8px; animation: shimmer 1.4s infinite;
@@ -238,7 +238,7 @@
   .card.skeleton-card { pointer-events: none; }
   .card.skeleton-card .card-header, .card.skeleton-card .card-body, .card.skeleton-card .card-footer { opacity: 0.55; }
 
-  /* Logs */
+  /* 日志 */
   .log-section {
     background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border);
     box-shadow: var(--shadow); overflow: hidden;
@@ -290,7 +290,7 @@
   }
   .log-highlight { background: var(--console-highlight) !important; border-radius: 3px; }
 
-  /* Modal */
+  /* 弹窗 */
   .modal-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45);
     backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 1000;
@@ -321,7 +321,7 @@
   .form-checkbox input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 
-  /* Format mode */
+  /* 格式模式 */
   .format-section { margin-top: 6px; padding: 14px; background: var(--panel-soft); border-radius: 10px; border: 1px solid var(--border); }
   .format-section-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; display: block; }
   .format-options { display: flex; gap: 6px; margin-bottom: 10px; }
@@ -346,7 +346,7 @@
   }
   .preview-content.ph { color: var(--console-muted); font-style: italic; }
 
-  /* Toast */
+  /* 提示消息 */
   .toast {
     position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
     padding: 12px 22px; border-radius: 12px; font-size: 14px; font-weight: 500; color: #fff;
@@ -358,7 +358,7 @@
   .toast-error { background: var(--danger-bg); }
   .toast-info { background: var(--primary-bg); }
 
-  /* Confirm */
+  /* 确认框 */
   .confirm-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(3px);
     z-index: 1100; justify-content: center; align-items: center; padding: 20px;
@@ -372,7 +372,7 @@
   .confirm-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
   .confirm-actions { display: flex; gap: 10px; justify-content: center; }
 
-  /* Responsive */
+  /* 响应式布局 */
   @media (max-width: 640px) {
     body { padding: 16px; }
     .page-header { flex-direction: column; align-items: flex-start; }
@@ -471,7 +471,7 @@
   </div>
 </section>
 
-<!-- 配置 Modal -->
+<!-- 配置弹窗 -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <h2 id="modalTitle">添加配置</h2>
@@ -590,7 +590,7 @@
   </div>
 </div>
 
-<!-- Toast -->
+<!-- 提示消息 -->
 <div class="toast" id="toast">
   <svg id="toastIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>
   <span id="toastText">提示</span>

@@ -14,6 +14,7 @@ import dns.exception
 from mcstatus import BedrockServer, JavaServer
 from mcstatus._net.dns import async_resolve_mc_srv
 
+from ..server_status.model import normalize_latency_ms
 from .base_client import BaseMcClient, format_server_address, normalize_server_host
 
 _DEFAULT_JAVA_PORT = 25565
@@ -52,8 +53,7 @@ class LocalClient(BaseMcClient):
             try:
                 ip_address(host)
             except ValueError:
-                # Domains resolve _minecraft._tcp first even with a legacy
-                # configured port; DNS failure falls back below.
+                # 即使配置了旧版端口，域名仍优先解析 _minecraft._tcp；DNS 失败时再回退到下方逻辑。
                 try:
                     return await async_resolve_mc_srv(host, lifetime=_TIMEOUT)
                 except dns.exception.DNSException:
@@ -99,6 +99,8 @@ class LocalClient(BaseMcClient):
             "software": _UNKNOWN,
             "map": _UNKNOWN,
             "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "latency_ms": normalize_latency_ms(getattr(status, "latency", None)),
+            "reachable": True,
         }
 
     def _bedrock_status_payload(self, status: object) -> dict:
@@ -124,6 +126,8 @@ class LocalClient(BaseMcClient):
             "software": getattr(version, "brand", "") or _UNKNOWN,
             "map": getattr(status, "map_name", "") or _UNKNOWN,
             "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "latency_ms": normalize_latency_ms(getattr(status, "latency", None)),
+            "reachable": True,
         }
 
     def _parse_raw_data(self, data: object) -> dict | None:
@@ -152,6 +156,8 @@ class LocalClient(BaseMcClient):
             "software": _UNKNOWN,
             "map": _UNKNOWN,
             "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "latency_ms": None,
+            "reachable": False,
         }
 
     async def get_server_info(self) -> dict | None:

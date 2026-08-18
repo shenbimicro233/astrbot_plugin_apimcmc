@@ -45,8 +45,7 @@ def to_local_datetime(value: datetime | str | None = None) -> datetime:
     elif not isinstance(value, datetime):
         raise TypeError("observed_at must be a datetime or ISO-8601 string")
 
-    # With no explicit target timezone, astimezone() applies the host's rules
-    # for the supplied timestamp, including historical daylight-saving offsets.
+    # 未指定目标时区时，astimezone() 使用主机规则，包括历史夏令时偏移。
     return value.astimezone()
 
 
@@ -336,7 +335,7 @@ class PlayerCountWindowSeries:
         return bool(self.observations)
 
 
-# Stable aliases for callers that prefer shorter or legacy domain names.
+# 为偏好较短名称或兼容旧领域名称的调用方保留稳定别名。
 PlayerCountDaySeries = PlayerCountWindowSeries
 DaySeries = PlayerCountWindowSeries
 PlayerStatsDay = PlayerCountWindowSeries

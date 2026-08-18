@@ -114,7 +114,7 @@ class BaseMcClient:
                 return None
             parsed = self._parse_raw_data(data)
         except Exception:
-            # External transport and normalization share one None boundary.
+            # 外部传输和数据规范化统一以 None 表示失败。
             return None
         return parsed if isinstance(parsed, dict) else None
 

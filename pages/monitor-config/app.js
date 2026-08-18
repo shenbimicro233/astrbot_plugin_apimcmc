@@ -141,7 +141,7 @@ function updatePreview() {
   el.className = 'preview-content' + (text ? '' : ' ph');
 }
 
-// ── Toast ──
+// ── 提示消息 ──
 
 function showToast(msg, type) {
   type = type || 'info';
@@ -485,14 +485,14 @@ function setFormValues(v) {
   const f_as = $('f_api_source');
   if (f_as) f_as.value = v.api_source || '';
 
-  // Mode radio
+  // 模式单选框
   let mode = 'full';
   if (v.custom_mode === true) mode = 'custom';
   else if (v.simple_mode === true) mode = 'simple';
   const mr = document.querySelector('input[name="msg_format"][value="' + mode + '"]');
   if (mr) mr.checked = true;
 
-  // Custom field checkboxes
+  // 自定义字段复选框
   const cf = v.custom_fields || [];
   document.querySelectorAll('#customFieldsPanel input[type="checkbox"]').forEach(cb => {
     cb.checked = cf.includes(cb.value);
@@ -613,7 +613,7 @@ async function pullLogs(initial) {
 
     const logs = Array.isArray(data.logs) ? data.logs : [];
     if (logs.length) {
-      // DocumentFragment 批量追加，减少 DOM reflow
+      // 使用 DocumentFragment 批量追加，减少 DOM 重排
       const fragment = document.createDocumentFragment();
       let newSinceId = state.get('logSinceId');
 
@@ -794,11 +794,11 @@ function bindStaticUi() {
   const addBtn = $('addBtn');
   if (addBtn) addBtn.addEventListener('click', openAddModal);
 
-  // Modal 取消
+  // 弹窗取消
   const cancelBtn = $('cancelBtn');
   if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
 
-  // Confirm 按钮
+  // 确认按钮
   const confirmCancel = $('confirmCancel');
   if (confirmCancel) confirmCancel.addEventListener('click', () => closeConfirm(false));
   const confirmOk = $('confirmOk');

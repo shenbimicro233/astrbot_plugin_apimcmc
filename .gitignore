@@ -220,6 +220,8 @@ tests/
 .codex/
 .trellis/
 .tmp/
+blackbox-artifacts/
+tools/
 requirements-dev.txt
 pyproject.toml
 AGENTS.md

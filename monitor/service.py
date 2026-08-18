@@ -279,9 +279,7 @@ class MonitorService:
         if cfg and cfg.enabled and self.is_query_config_valid(cfg):
             new_target = self._target_signature(cfg)
             if old_target is not None and old_target != new_target:
-                # A changed target must not leave the previous server's
-                # rolling window available on disk while waiting for the
-                # first successful observation from the replacement target.
+                # 目标变更后，在替换目标首次成功观测前，不应继续使用旧服务器保存在磁盘上的滚动窗口。
                 await self._delete_group_stats(group_id)
             self._set_client(group_id, cfg)
             if group_id not in self._group_trackers or old_target != new_target:

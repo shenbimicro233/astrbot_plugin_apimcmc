@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+
 def _format_motd(motd: str) -> str:
     """格式化 MOTD 字段，超过长度则截断。"""
     if not motd:

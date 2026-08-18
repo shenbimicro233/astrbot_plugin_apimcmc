@@ -14,6 +14,7 @@ from ipaddress import IPv6Address
 import aiohttp
 from yarl import URL
 
+from ..server_status.model import normalize_latency_ms
 from .base_client import (
     BaseMcClient,
     format_server_address,
@@ -31,7 +32,7 @@ _MCMOTDAPI_SERVER_TYPE_MAP = {
 def _parse_api_port(value: str) -> int:
     """Validate an optional mcmotdapi endpoint port."""
 
-    if not value.isdecimal():
+    if not value.isascii() or not value.isdecimal():
         raise ValueError("mcmotdapi host port must be a number")
     port = int(value)
     if not 1 <= port <= 65535:
@@ -209,4 +210,6 @@ class McMotdApiClient(BaseMcClient):
             "software": software,
             "map": server_map,
             "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "latency_ms": normalize_latency_ms(data.get("delay")),
+            "reachable": True,
         }

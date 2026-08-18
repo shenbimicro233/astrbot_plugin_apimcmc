@@ -128,4 +128,6 @@ class McStatusClient(BaseMcClient):
             "software": data.get("software", "未知"),
             "map": server_map,
             "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "latency_ms": None,
+            "reachable": True,
         }

@@ -41,10 +41,7 @@ def is_srv_port_optional(
 ) -> bool:
     """Return whether Java may omit the configured port through SRV."""
 
-    return (
-        server_type == "java"
-        and enable_srv is True
-    )
+    return server_type == "java" and enable_srv is True
 
 
 def normalize_server_port(value: object) -> int | None:
@@ -80,8 +77,7 @@ class GroupConfig:
         self.mcmotdapi_ssl: bool | None = None if raw_ssl is None else bool(raw_ssl)
         raw_enable_srv = data.get("enable_srv")
         if type(raw_enable_srv) is not bool:
-            # Legacy per-group key migrates to the unified field on read;
-            # missing/null/invalid values default to True (the old global default).
+            # 读取时将旧版群组字段迁移到统一字段；缺失、空值或非法值沿用旧全局默认值 True。
             raw_enable_srv = data.get("mcmotdapi_enable_srv")
         self.enable_srv: bool = raw_enable_srv if type(raw_enable_srv) is bool else True
         raw_simple = data.get("simple_mode")

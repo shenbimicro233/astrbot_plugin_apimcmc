@@ -1,48 +1,30 @@
-# Bundled Fonts
+# 内置字体资源
 
-## Monocraft Font
+本目录中的字体是插件发布包的一部分，字体许可与插件代码的 AGPL-3.0-or-later
+许可相互独立。字体文件均保持上游内容，不对字形或 OpenType 表进行修改。
 
-This directory bundles the unmodified regular TrueType build of Monocraft.
+## GNU Unifont 17.0.05
 
-- Source: <https://github.com/IdreesInc/Monocraft>
-- Release: `v4.2.1`
-- Commit: `04d8a6f3c0fcddf9ab0ec6c21aefcf6302392464`
-- Upstream path: `dist/Monocraft-ttf/Monocraft.ttf`
-- File SHA-256: `262e31822e0a75be567b02320bfa092143d871e8a273e529d1c5ab0c04cd215f`
-- OFL normalized-text SHA-256: `f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1`
-- Copyright: Copyright (c) 2022, Idrees Hassan
+普通中文统计图和查服图使用 GNU Unifont 标准 OpenType 版本（不是区域变体）：
 
-The bundled font includes its Standard Galactic Alphabet glyphs at private-use
-code points `U+EB40` through `U+EB59`. The renderer maps ASCII letters to this
-range case-insensitively and leaves digits and punctuation unchanged.
+- 来源分发目录：<https://unifoundry.com/pub/>
+- 上游文件：<https://unifoundry.com/pub/unifont/unifont-17.0.05/font-builds/unifont-17.0.05.otf>
+- 版本：`17.0.05`
+- 本地文件：`unifont-17.0.05.otf`
+- 文件 SHA-256：`85701ab9b1e251ee16f4df00b13f22eac311d72b7dab427a7d975fe7f5064702`
 
-Monocraft is distributed under the SIL Open Font License 1.1. The complete
-copyright notice and license are preserved in `OFL-Monocraft.txt`. The font
-remains under OFL-1.1 when bundled with this AGPL-licensed plugin. The public
-license page is <https://openfontlicense.org/>.
+GNU Unifont 采用 SIL Open Font License 1.1 与带字体嵌入例外的 GNU GPLv2
+或更高版本双重许可。完整文本随字体分发：
 
-## Fusion Pixel Font
+- `OFL-1.1.txt`：换行归一化后的 SHA-256
+  `b7e8b9d8656d5216a61f48c7e62704b8aec50e8af8ca410b28fb04ea32e0f220`
+- `LICENSE.txt`：包含版权说明、GPLv2+ 和字体嵌入例外，换行归一化后的 SHA-256
+  `1e74cb82bf476843e97c2596297b04219b1a7e51f7238944a8c031cb9401fa87`
 
-This directory also bundles the regular TrueType build of Fusion Pixel 10px
-Mono ja.
+## Monocraft
 
-- Source: <https://github.com/TakWolf/fusion-pixel-font>
-- Release: `2026.07.20`
-- Release commit: `c29615e1f629c6bb27dac3e6dcaa4556e629d09f`
-- Upstream asset: `fusion-pixel-font-10px-monospaced-ttf-v2026.07.20.zip`
-- Asset ZIP SHA-256: `3d2719a7720d405167b494b7fa1c8e721bfbda59183cccc696ef5d43b0be5945`
-  (ja variant)
-- Local file: `fusion-pixel-10px-monospaced-ja.ttf`
-- File SHA-256: `a476f9fc45dbd2b8b292f6264dfd0aa1a5e9e4ee464c819f306c5e0ee141b227`
-- Copyright: Copyright (c) 2022, TakWolf (https://takwolf.com)
-- License SHA-256 (normalized text): `bc518cf64b8032c07690f33cc270c35c179255a6ac8efa7c165ebae7e8f76a63`
+附魔台文字（`galactic`）继续使用未修改的 Monocraft regular TTF，并将 ASCII
+字母映射到 Standard Galactic Alphabet。其完整 OFL-1.1 文本保存在
+`OFL-Monocraft.txt`。系统/配置字体模式不会加载本目录中的内置字体。
 
-The complete OFL-1.1 notice is preserved in `OFL-FusionPixel.txt`. The bundled
-TTF and OFL text
-were verified byte-identical to the official `2026.07.20` release assets
-(commit `c29615e1f629c6bb27dac3e6dcaa4556e629d09f`). The public license page
-is <https://openfontlicense.org/>.
-
-In the default Chinese chart-text mode, all chart copy is Chinese and is
-rendered only with this bundled font. Galactic mode uses bundled Monocraft;
-system mode does not use either bundled font.
+渲染器在字体或任一对应许可证校验失败时回退到系统/配置字体，不会阻止插件启动。
