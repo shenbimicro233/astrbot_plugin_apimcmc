@@ -222,6 +222,7 @@ tests/
 .tmp/
 blackbox-artifacts/
 tools/
+.omp/
 requirements-dev.txt
 pyproject.toml
 AGENTS.md
