@@ -17,8 +17,13 @@ from ..mcserver import create_mc_client
 from ..mcserver.base_client import format_server_address
 from ..mcserver.formatter import (
     format_server_info,
-    format_server_info_custom,
     format_server_info_simple,
+)
+from ..mcserver.template import (
+    DEFAULT_OFFLINE_TEMPLATE,
+    DEFAULT_ONLINE_TEMPLATE,
+    render_template,
+    template_needs_hitokoto,
 )
 from ..player_stats.model import TargetSignature
 from ..player_stats.store import PlayerStatsStore
@@ -491,15 +496,39 @@ class MonitorService:
             if cfg and cfg.name and cfg.name != "Minecraft服务器":
                 server_data["name"] = cfg.name
 
-            # 根据模式选择格式：自定义 > 精简 > 完整
-            if cfg.custom_mode and cfg.custom_fields:
-                status_line = format_server_info_custom(server_data, server_type, cfg.custom_fields)
-                final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
-                need_hitokoto = "hitokoto" in cfg.custom_fields
-            else:
-                effective_simple = (
-                    cfg.simple_mode if cfg.simple_mode is not None else self.simple_mode
+            # 根据模式选择格式：自定义 > 精简 > 完整。空模板使用内置默认值。
+            message_format = getattr(cfg, "message_format", None)
+            if message_format == "custom":
+                if server_data.get("status") == "online":
+                    active_template = (
+                        getattr(cfg, "message_template", "") or DEFAULT_ONLINE_TEMPLATE
+                    )
+                else:
+                    active_template = (
+                        getattr(cfg, "offline_template", "") or DEFAULT_OFFLINE_TEMPLATE
+                    )
+                need_hitokoto = template_needs_hitokoto(active_template)
+                hitokoto = ""
+                if need_hitokoto:
+                    try:
+                        hitokoto = await get_hitokoto() or ""
+                    except Exception as exc:
+                        # 一言是通知的可选字段，外部接口失败时不应阻断状态通知。
+                        self._log("WARN", f"缁?{group_id} 获取一言失败，模板字段置空: {exc}", group_id)
+                status_line = render_template(
+                    active_template,
+                    {**server_data, "change_msg": change_msg},
+                    server_type,
+                    hitokoto or "",
                 )
+                final_msg = status_line
+            else:
+                if message_format == "simple":
+                    effective_simple = True
+                elif message_format == "full":
+                    effective_simple = False
+                else:
+                    effective_simple = self.simple_mode
                 if effective_simple:
                     status_line = format_server_info_simple(server_data)
                     final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
@@ -509,7 +538,7 @@ class MonitorService:
                     final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
                     need_hitokoto = True
 
-            if need_hitokoto:
+            if need_hitokoto and message_format != "custom":
                 hitokoto = await get_hitokoto()
                 if hitokoto:
                     final_msg += f"\n\n💬 {hitokoto}"

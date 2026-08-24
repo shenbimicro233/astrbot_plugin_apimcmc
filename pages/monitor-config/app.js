@@ -75,37 +75,50 @@ function ensureApiOk(response) {
   return response;
 }
 
-// ── 消息预览 ──
+// ── 消息模板与预览 ──
 
-const CUSTOM_FIELD_ORDER = [
-  'status_emoji', 'name', 'motd', 'version', 'protocol',
-  'player_count', 'software', 'type_label', 'map', 'update_time',
-  'hitokoto',
-];
+let templateFields = [];
+let defaultOnlineTemplate = '';
+let defaultOfflineTemplate = '';
+let activeTemplateTextarea = null;
+let activeSelection = null;
+let previewRequestId = 0;
 
-const FIELD_PREVIEW_LABELS = {
-  status_emoji: '🟢',
-  name: 'play.example.com',
-  motd: '📝 MOTD: A Minecraft Server',
-  version: '🎮 版本: Paper 1.20.1',
-  protocol: '',
-  player_count: '👥 5/20',
-  software: '🛠️ 软件: Paper',
-  type_label: '🔧 类型: 基岩版',
-  map: '',
-  update_time: '🕒 更新时间: 2026-07-22 14:30',
-  hitokoto: '💬 这是一条示例一言',
-};
+function rememberTemplateSelection(el) {
+  if (!el || !el.matches('textarea[data-template]')) return;
+  activeTemplateTextarea = el;
+  activeSelection = {
+    start: Number.isInteger(el.selectionStart) ? el.selectionStart : el.value.length,
+    end: Number.isInteger(el.selectionEnd) ? el.selectionEnd : el.value.length,
+  };
+}
 
-function renderPreview(fields) {
-  if (!fields || fields.length === 0) return '请勾选需要显示的字段';
-  const lines = [];
-  for (const key of CUSTOM_FIELD_ORDER) {
-    if (!fields.includes(key)) continue;
-    const text = FIELD_PREVIEW_LABELS[key];
-    if (text) lines.push(text);
+function renderTemplateFields() {
+  const container = $('templateVariables');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const field of templateFields) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'field-variable';
+    button.dataset.key = field.key;
+    button.textContent = `${field.label} {${field.key}}`;
+    button.title = field.description || field.key;
+    container.appendChild(button);
   }
-  return lines.join('\n') || '请勾选需要显示的字段';
+}
+
+async function loadTemplateFields() {
+  const result = ensureApiOk(await bridge.apiGet('fields'));
+  templateFields = Array.isArray(result && result.fields) ? result.fields : [];
+  defaultOnlineTemplate = String((result && result.default_online_template) || '');
+  defaultOfflineTemplate = String((result && result.default_offline_template) || '');
+  renderTemplateFields();
+}
+
+function getTemplateValue(id, fallback = '') {
+  const el = $(id);
+  return el ? el.value : fallback;
 }
 
 function getSelectedMode() {
@@ -113,32 +126,84 @@ function getSelectedMode() {
   return r ? r.value : 'full';
 }
 
-function getSelectedFields() {
-  return Array.from(
-    document.querySelectorAll('#customFieldsPanel input[type="checkbox"]:checked'),
-    cb => cb.value
-  );
-}
-
 function updateCustomFieldsVisibility() {
   const panel = document.getElementById('customFieldsPanel');
   if (panel) panel.style.display = getSelectedMode() === 'custom' ? '' : 'none';
 }
 
-function updatePreview() {
-  const el = document.getElementById('previewContent');
-  if (!el) return;
+const requestTemplatePreview = debounce(async (requestId) => {
+  const onlineEl = $('previewOnline');
+  const offlineEl = $('previewOffline');
+  const errorEl = $('previewError');
+  const setPreviewError = (message) => {
+    if (!errorEl) return;
+    errorEl.textContent = message || '';
+    errorEl.classList.toggle('show', Boolean(message));
+  };
   const mode = getSelectedMode();
-  let text = '';
-  if (mode === 'full') {
-    text = '🟢 服务器: play.example.com\n📝 MOTD: A Minecraft Server\n🎮 版本: Paper 1.20.1\n👥 在线玩家: 5/20\n🔧 类型: 基岩版\n🕒 更新时间: 2026-07-22 14:30\n💬 这是一条示例一言';
-  } else if (mode === 'simple') {
-    text = '🟢 play.example.com  👥 5/20';
-  } else {
-    text = renderPreview(getSelectedFields());
+  if (mode !== 'custom') {
+    if (onlineEl) onlineEl.textContent = mode === 'simple' ? '🟢 play.example.com  👥 5/20' : '请选择自定义模板以预览';
+    if (offlineEl) offlineEl.textContent = '🔴 play.example.com | 服务器已离线';
+    setPreviewError('');
+    return;
   }
-  el.textContent = text;
-  el.className = 'preview-content' + (text ? '' : ' ph');
+  setPreviewError('');
+  try {
+    const result = ensureApiOk(await bridge.apiPost('configs/preview', {
+      server_type: $('f_type') && $('f_type').value === 'bedrock' ? 'bedrock' : 'java',
+      message_template: getTemplateValue('f_msg_template'),
+      offline_template: getTemplateValue('f_offline_template'),
+    }));
+    if (requestId !== previewRequestId) return;
+    if (onlineEl) {
+      onlineEl.textContent = result.online || '';
+      onlineEl.classList.toggle('ph', !result.online);
+    }
+    if (offlineEl) {
+      offlineEl.textContent = result.offline || '';
+      offlineEl.classList.toggle('ph', !result.offline);
+    }
+  } catch (error) {
+    if (requestId !== previewRequestId) return;
+    if (onlineEl) onlineEl.textContent = '';
+    if (offlineEl) offlineEl.textContent = '';
+    if (onlineEl) onlineEl.classList.add('ph');
+    if (offlineEl) offlineEl.classList.add('ph');
+    setPreviewError(error.message || String(error));
+  }
+}, 300);
+
+function updatePreview() {
+  previewRequestId += 1;
+  requestTemplatePreview(previewRequestId);
+}
+
+function insertTemplateVariable(key) {
+  const textarea = activeTemplateTextarea && document.body.contains(activeTemplateTextarea)
+    ? activeTemplateTextarea
+    : $('f_msg_template');
+  if (!textarea) return;
+  const value = textarea.value || '';
+  const saved = textarea === activeTemplateTextarea && activeSelection
+    ? activeSelection
+    : { start: value.length, end: value.length };
+  const start = Math.max(0, Math.min(saved.start, value.length));
+  const end = Math.max(start, Math.min(saved.end, value.length));
+  const insertion = `{${key}}`;
+  textarea.value = value.slice(0, start) + insertion + value.slice(end);
+  const cursor = start + insertion.length;
+  textarea.focus();
+  textarea.setSelectionRange(cursor, cursor);
+  rememberTemplateSelection(textarea);
+  updatePreview();
+}
+
+function restoreDefaultTemplates() {
+  const online = $('f_msg_template');
+  const offline = $('f_offline_template');
+  if (online) online.value = defaultOnlineTemplate;
+  if (offline) offline.value = defaultOfflineTemplate;
+  updatePreview();
 }
 
 // ── 提示消息 ──
@@ -262,12 +327,9 @@ function createCardElement(gid, cfg) {
 
   const fmtEl = bind('msg-format');
   if (fmtEl) {
-    if (cfg.custom_mode) {
-      const n = (cfg.custom_fields || []).length;
-      fmtEl.textContent = '自定义 (' + n + ' 字段)';
-    } else {
-      fmtEl.textContent = cfg.simple_mode === true ? '简化' : (cfg.simple_mode === false ? '完整' : '全局默认');
-    }
+    fmtEl.textContent = cfg.message_format === 'custom' ? '自定义'
+      : (cfg.message_format === 'simple' ? '简化'
+        : (cfg.message_format === 'full' ? '完整' : '全局默认'));
   }
 
   const gidEl = bind('group-id');
@@ -377,7 +439,7 @@ function openAddModal() {
   state.set('editingGid', null);
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
-  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, hitokoto: true, simple_mode: false, custom_mode: false, custom_fields: [], api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true, enable_srv: true });
+  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, message_format: 'full', message_template: defaultOnlineTemplate, offline_template: defaultOfflineTemplate, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true, enable_srv: true });
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
@@ -396,8 +458,11 @@ function editConfig(gid) {
     group_id: gid, name: cfg.name || '', ip: cfg.server_ip || '',
     port: String(cfg.server_port || ''), type: cfg.server_type || 'bedrock',
     enabled: cfg.enabled !== false,
-    simple_mode: cfg.simple_mode === true,
-    custom_mode: cfg.custom_mode === true, custom_fields: cfg.custom_fields || [],
+    message_format: cfg.message_format,
+    message_template: typeof cfg.message_template === 'string'
+      ? cfg.message_template : defaultOnlineTemplate,
+    offline_template: typeof cfg.offline_template === 'string'
+      ? cfg.offline_template : defaultOfflineTemplate,
     api_source: cfg.api_source || '', mcmotdapi_host: cfg.mcmotdapi_host || '',
     mcmotdapi_ssl: cfg.mcmotdapi_ssl !== false,
     enable_srv: typeof cfg.enable_srv === 'boolean'
@@ -416,6 +481,8 @@ function closeModal() {
   const mo = $('modalOverlay');
   if (mo) mo.classList.remove('active');
   state.set('editingGid', null);
+  activeTemplateTextarea = null;
+  activeSelection = null;
 }
 
 function toggleSourceConfig() {
@@ -430,6 +497,7 @@ function toggleSourceConfig() {
   const localHint = $('local_srv_hint');
   if (localHint) localHint.style.display = showSrv && source === 'local' ? '' : 'none';
   updatePortRequirement();
+  updatePreview();
 }
 
 function canOmitPortForSrv() {
@@ -486,17 +554,15 @@ function setFormValues(v) {
   if (f_as) f_as.value = v.api_source || '';
 
   // 模式单选框
-  let mode = 'full';
-  if (v.custom_mode === true) mode = 'custom';
-  else if (v.simple_mode === true) mode = 'simple';
+  const mode = ['full', 'simple', 'custom'].includes(v.message_format)
+    ? v.message_format : 'full';
   const mr = document.querySelector('input[name="msg_format"][value="' + mode + '"]');
   if (mr) mr.checked = true;
 
-  // 自定义字段复选框
-  const cf = v.custom_fields || [];
-  document.querySelectorAll('#customFieldsPanel input[type="checkbox"]').forEach(cb => {
-    cb.checked = cf.includes(cb.value);
-  });
+  const online = $('f_msg_template');
+  const offline = $('f_offline_template');
+  if (online) online.value = typeof v.message_template === 'string' ? v.message_template : defaultOnlineTemplate;
+  if (offline) offline.value = typeof v.offline_template === 'string' ? v.offline_template : defaultOfflineTemplate;
 
   updateCustomFieldsVisibility();
   updatePreview();
@@ -759,15 +825,9 @@ function bindFormSubmit() {
     };
 
     const mode = getSelectedMode();
-    if (mode === 'custom') {
-      data.custom_mode = true;
-      data.custom_fields = getSelectedFields();
-      data.simple_mode = false;
-    } else {
-      data.custom_mode = false;
-      data.custom_fields = null;
-      data.simple_mode = mode === 'simple';
-    }
+    data.message_format = mode;
+    data.message_template = getTemplateValue('f_msg_template');
+    data.offline_template = getTemplateValue('f_offline_template');
 
     const sb = $('submitBtn');
     if (!sb) return;
@@ -818,13 +878,31 @@ function bindStaticUi() {
     });
   });
 
-  // 自定义字段勾选 → 更新预览
-  const cfPanel = document.getElementById('customFieldsPanel');
-  if (cfPanel) {
-    cfPanel.addEventListener('change', (e) => {
-      if (e.target.type === 'checkbox') updatePreview();
+  // 模板变量按钮、光标记忆与防抖预览
+  const variableBox = $('templateVariables');
+  if (variableBox) {
+    variableBox.addEventListener('mousedown', (event) => {
+      const button = event.target.closest('.field-variable');
+      if (button) event.preventDefault();
+    });
+    variableBox.addEventListener('click', (event) => {
+      const button = event.target.closest('.field-variable');
+      if (button) insertTemplateVariable(button.dataset.key);
     });
   }
+  document.querySelectorAll('textarea[data-template]').forEach((textarea) => {
+    textarea.addEventListener('focus', () => rememberTemplateSelection(textarea));
+    // 鼠标在已聚焦文本框中移动光标时，浏览器不会总是触发 select 事件。
+    textarea.addEventListener('mouseup', () => rememberTemplateSelection(textarea));
+    textarea.addEventListener('select', () => rememberTemplateSelection(textarea));
+    textarea.addEventListener('keyup', () => rememberTemplateSelection(textarea));
+    textarea.addEventListener('input', () => {
+      rememberTemplateSelection(textarea);
+      updatePreview();
+    });
+  });
+  const restore = $('restoreDefaultTemplates');
+  if (restore) restore.addEventListener('click', restoreDefaultTemplates);
 }
 
 // ── 入口 ──
@@ -832,6 +910,7 @@ function bindStaticUi() {
 async function main() {
   try {
     await bridge.ready();
+    await loadTemplateFields();
     bindStaticUi();
     bindFilters();
     bindFormSubmit();

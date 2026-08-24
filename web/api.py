@@ -12,7 +12,19 @@ from typing import Callable
 
 from astrbot.api.web import error_response, json_response, request
 
-from ..mcserver.formatter import CUSTOM_FIELD_ORDER
+from ..mcserver.template import (
+    DEFAULT_OFFLINE_TEMPLATE,
+    DEFAULT_ONLINE_TEMPLATE,
+    FIELD_REGISTRY,
+    LEGACY_CUSTOM_FIELD_KEYS,
+    SAMPLE_HITOKOTO,
+    SAMPLE_OFFLINE_SERVER_DATA,
+    SAMPLE_SERVER_DATA,
+    SAMPLE_SERVER_TYPE,
+    build_template_from_fields,
+    render_template,
+    validate_template,
+)
 from ..monitor.run_log import DEFAULT_RUN_LOG_MAX, RunLogBuffer
 from ..monitor.service import MonitorService
 from ..utils.group_config import (
@@ -25,7 +37,9 @@ RunLogFn = Callable[[str, str, str | None], None]
 
 ALLOWED_SERVER_TYPES = {"java", "bedrock"}
 ALLOWED_API_SOURCES = {"", "mcstatus", "mcmotdapi", "local"}
-ALLOWED_CUSTOM_FIELDS = set(CUSTOM_FIELD_ORDER) | {"hitokoto"}
+ALLOWED_MESSAGE_FORMATS = {"full", "simple", "custom"}
+# 保留旧调用方导入名，但字段集合仍由模板注册表派生。
+ALLOWED_CUSTOM_FIELDS = set(LEGACY_CUSTOM_FIELD_KEYS)
 
 
 @dataclass
@@ -128,6 +142,15 @@ class WebApiHandler:
             raise ValueError(f"{key} 必须是字符串")
         return value.strip()
 
+    @staticmethod
+    def _parse_raw_string(body: dict, key: str, default: str = "") -> str:
+        """解析模板文本时保留首尾空白和换行。"""
+
+        value = body.get(key, default)
+        if not isinstance(value, str):
+            raise ValueError(f"{key} 必须是字符串")
+        return value
+
     @classmethod
     def validate_config_payload(cls, body: object) -> dict:
         """校验并规范化 WebUI 的群配置请求。"""
@@ -172,14 +195,55 @@ class WebApiHandler:
                 allow_empty=False,
             )
 
-        custom_fields = body.get("custom_fields")
-        if custom_fields is not None:
-            if not isinstance(custom_fields, list) or any(
-                not isinstance(field, str) or field not in ALLOWED_CUSTOM_FIELDS
-                for field in custom_fields
+        raw_format = body.get("message_format", None)
+        if raw_format is not None and (
+            not isinstance(raw_format, str) or raw_format not in ALLOWED_MESSAGE_FORMATS
+        ):
+            raise ValueError("message_format 必须是 full、simple 或 custom")
+
+        # 兼容旧版 WebUI/调用方的三字段请求；转换后仍只写入新模板字段。
+        if "message_format" not in body and any(
+            key in body for key in ("custom_mode", "custom_fields", "simple_mode")
+        ):
+            raw_custom = body.get("custom_mode")
+            raw_fields = body.get("custom_fields")
+            if raw_custom is not None and type(raw_custom) is not bool:
+                raise ValueError("custom_mode 必须是布尔值")
+            if raw_fields is not None and (
+                not isinstance(raw_fields, list)
+                or any(
+                    not isinstance(field, str) or field not in LEGACY_CUSTOM_FIELD_KEYS
+                    for field in raw_fields
+                )
             ):
                 raise ValueError("custom_fields 包含不支持的字段")
-            custom_fields = list(dict.fromkeys(custom_fields))
+            fields = list(dict.fromkeys(raw_fields or []))
+            if raw_custom is True and fields:
+                raw_format = "custom"
+                message_template = build_template_from_fields(fields)
+            else:
+                raw_simple = body.get("simple_mode")
+                if raw_simple is not None and type(raw_simple) is not bool:
+                    raise ValueError("simple_mode 必须是布尔值")
+                raw_format = (
+                    "simple" if raw_simple is True else ("full" if raw_simple is False else None)
+                )
+                message_template = ""
+            offline_template = ""
+        else:
+            message_template = cls._parse_raw_string(body, "message_template")
+            offline_template = cls._parse_raw_string(body, "offline_template")
+
+        if raw_format == "custom":
+            for template in (message_template, offline_template):
+                unknown = validate_template(template)
+                if unknown:
+                    raise ValueError(f"模板包含未知占位符: {', '.join(unknown)}")
+        elif "message_template" in body or "offline_template" in body:
+            for template in (message_template, offline_template):
+                unknown = validate_template(template)
+                if unknown:
+                    raise ValueError(f"模板包含未知占位符: {', '.join(unknown)}")
 
         return {
             "group_id": cls._parse_group_id(body.get("group_id")),
@@ -206,9 +270,9 @@ class WebApiHandler:
                 default=None,
             ),
             "enable_srv": enable_srv,
-            "simple_mode": cls._parse_bool(body, "simple_mode", default=None),
-            "custom_mode": cls._parse_bool(body, "custom_mode", default=None),
-            "custom_fields": custom_fields,
+            "message_format": raw_format,
+            "message_template": message_template,
+            "offline_template": offline_template,
         }
 
     def register(self, context) -> None:
@@ -216,7 +280,9 @@ class WebApiHandler:
         prefix = f"/{self.plugin_name}"
         apis = [
             (f"{prefix}/configs", self.api_get_configs, ["GET"], "获取所有群的独立配置"),
+            (f"{prefix}/fields", self.api_get_fields, ["GET"], "获取模板字段元数据"),
             (f"{prefix}/configs/save", self.api_save_config, ["POST"], "新增或更新一个群的配置"),
+            (f"{prefix}/configs/preview", self.api_preview_config, ["POST"], "预览监控消息模板"),
             (f"{prefix}/configs/delete", self.api_delete_config, ["POST"], "删除指定群的配置"),
             (f"{prefix}/stats", self.api_get_stats, ["GET"], "获取运行时状态"),
             (f"{prefix}/logs", self.api_get_logs, ["GET"], "获取监控运行日志（增量）"),
@@ -224,6 +290,61 @@ class WebApiHandler:
         ]
         for path, handler, methods, desc in apis:
             context.register_web_api(path, handler, methods, desc)
+
+    async def api_get_fields(self):
+        """返回前端动态渲染变量按钮所需的字段元数据。"""
+
+        return json_response(
+            {
+                "fields": [
+                    {
+                        "key": field.key,
+                        "label": field.label,
+                        "description": field.description,
+                        "preview": field.preview,
+                    }
+                    for field in FIELD_REGISTRY
+                ],
+                "default_online_template": DEFAULT_ONLINE_TEMPLATE,
+                "default_offline_template": DEFAULT_OFFLINE_TEMPLATE,
+            }
+        )
+
+    async def api_preview_config(self):
+        """使用固定样例调用真实模板渲染器，返回在线和离线预览。"""
+
+        try:
+            body = await request.json(default={})
+            if not isinstance(body, dict):
+                raise ValueError("请求体必须是 JSON 对象")
+            server_type = self._parse_string(body, "server_type", SAMPLE_SERVER_TYPE).lower()
+            if server_type not in ALLOWED_SERVER_TYPES:
+                raise ValueError("server_type 必须是 java 或 bedrock")
+            online_template = (
+                self._parse_raw_string(body, "message_template") or DEFAULT_ONLINE_TEMPLATE
+            )
+            offline_template = (
+                self._parse_raw_string(body, "offline_template") or DEFAULT_OFFLINE_TEMPLATE
+            )
+            for template in (online_template, offline_template):
+                unknown = validate_template(template)
+                if unknown:
+                    raise ValueError(f"模板包含未知占位符: {', '.join(unknown)}")
+            return json_response(
+                {
+                    "online": render_template(
+                        online_template, SAMPLE_SERVER_DATA, server_type, SAMPLE_HITOKOTO
+                    ),
+                    "offline": render_template(
+                        offline_template,
+                        SAMPLE_OFFLINE_SERVER_DATA,
+                        server_type,
+                        SAMPLE_HITOKOTO,
+                    ),
+                }
+            )
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
 
     async def api_get_configs(self):
         """获取所有群的独立配置。"""
