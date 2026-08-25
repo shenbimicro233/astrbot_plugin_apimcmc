@@ -12,7 +12,7 @@ from typing import Callable
 
 from astrbot.api.web import error_response, json_response, request
 
-from ..mcserver.template import (
+from ..utils.template import (
     DEFAULT_OFFLINE_TEMPLATE,
     DEFAULT_ONLINE_TEMPLATE,
     FIELD_REGISTRY,

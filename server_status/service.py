@@ -9,6 +9,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..mcserver import create_mc_client
+from .exceptions import (
+    QueryBusyError,
+    QueryClosedError,
+    QueryConfigError,
+    QueryCooldownError,
+    QueryUsageError,
+    ServerQueryError,
+)
+
 from .model import (
     AddressParseError,
     EditionParseError,
@@ -30,30 +39,6 @@ DEFAULT_SOURCE = "local"
 DEFAULT_MCMOTDAPI_HOST = "motd.minebbs.com"
 DEFAULT_MCMOTDAPI_SSL = True
 _VALID_SOURCES = frozenset({"mcstatus", "mcmotdapi", "local"})
-
-
-class ServerQueryError(Exception):
-    """稳定命令级服务器查询结果的基类。"""
-
-
-class QueryUsageError(ServerQueryError):
-    """命令参数无法组成受支持的请求。"""
-
-
-class QueryConfigError(ServerQueryError):
-    """必需的已存储群目标缺失或无效。"""
-
-
-class QueryCooldownError(ServerQueryError):
-    """发送者在配置的冷却期内已有接受的查询。"""
-
-
-class QueryBusyError(ServerQueryError):
-    """新的上游查询将超过全局并发上限。"""
-
-
-class QueryClosedError(ServerQueryError):
-    """插件正在终止，不再接受新请求。"""
 
 
 @dataclass(frozen=True)

@@ -14,12 +14,12 @@ from typing import Callable
 from astrbot.api.star import Context
 
 from ..mcserver import create_mc_client
-from ..mcserver.base_client import format_server_address
+from ..mcserver.base_client import BaseMcClient, format_server_address
 from ..mcserver.formatter import (
     format_server_info,
     format_server_info_simple,
 )
-from ..mcserver.template import (
+from ..utils.template import (
     DEFAULT_OFFLINE_TEMPLATE,
     DEFAULT_ONLINE_TEMPLATE,
     render_template,
@@ -149,7 +149,7 @@ class MonitorService:
         self,
         cfg: GroupConfig,
     ) -> tuple[str, str, bool, bool]:
-        """Resolve the group query policy; SRV is per-group only and defaults to True."""
+        """解析群查询策略；SRV 仅按群生效且默认启用。"""
 
         source, host, ssl = self._resolve_effective_cfg(
             cfg,
@@ -161,7 +161,7 @@ class MonitorService:
         return source, host, ssl, enable_srv
 
     def format_effective_api_source(self, cfg: GroupConfig) -> str:
-        """Return the resolved API label used in monitor logs and commands."""
+        """返回用于监控日志和命令的生效查询源标签。"""
 
         source, host, _, enable_srv = self.resolve_effective_config(cfg)
         display = self._fmt_api_source(source, host)
@@ -171,7 +171,7 @@ class MonitorService:
         return display
 
     def is_query_config_valid(self, cfg: GroupConfig) -> bool:
-        """Validate a group after global source and SRV policy are resolved."""
+        """在全局查询源与 SRV 策略解析后校验群配置是否可用。"""
 
         has_query_identity = getattr(cfg, "has_query_identity", cfg.is_valid)
         if not has_query_identity():
@@ -182,7 +182,7 @@ class MonitorService:
         return cfg.is_valid()
 
     def _get_query_enabled_groups(self) -> dict[str, GroupConfig]:
-        """Return enabled groups that are valid under the effective policy."""
+        """返回按生效策略校验通过且已启用的群配置。"""
 
         return {
             group_id: cfg
@@ -220,7 +220,7 @@ class MonitorService:
         self,
         group_id: str,
     ) -> TargetSignature | None:
-        """Return the current group's canonical effective target signature."""
+        """返回当前群的规范化生效目标签名。"""
 
         cfg = self.config_mgr.get(str(group_id))
         return self._target_signature(cfg) if cfg and self.is_query_config_valid(cfg) else None
@@ -450,119 +450,183 @@ class MonitorService:
     async def check_one_group(self, group_id: str) -> str:
         """检查单个群。返回: ok / changed / failed / skipped。"""
         try:
-            client = self._group_clients.get(group_id)
-            tracker = self._group_trackers.get(group_id)
-            if not client or not tracker:
-                self._log("WARN", f"群 {group_id} 缺少 client/tracker，跳过", group_id)
+            client, tracker, cfg = self._resolve_group_check_context(group_id)
+            if client is None or tracker is None or cfg is None:
                 return "skipped"
 
-            cfg = self.config_mgr.get(group_id)
-            if cfg is None:
-                self._log("WARN", f"Group {group_id} configuration is missing; skipping", group_id)
-                return "skipped"
-            target = format_server_address(cfg.server_ip, cfg.server_port) if cfg else "?"
-            name = cfg.name if cfg else ""
-            source_display = self.format_effective_api_source(cfg)
-            self._log(
-                "INFO",
-                f"正在检查群 {group_id} | {name} ({target}) | API: {source_display}",
-                group_id,
-            )
+            self._log_group_check_start(group_id, cfg)
 
-            server_data = await client.get_server_info()
+            # 查询
+            server_data = await self._query_group_server(group_id, client)
             if server_data is None:
-                self._log("WARN", f"群 {group_id} 的服务器请求失败，跳过", group_id)
                 return "failed"
 
-            if cfg is not None:
-                await self._record_player_stats(group_id, cfg, server_data)
+            # 记录统计
+            await self._record_player_stats(group_id, cfg, server_data)
 
-            should_send, change_msg = tracker.check_changes(server_data)
+            # 变化检测
+            should_send, change_msg = self._check_group_changes(tracker, server_data)
             if not should_send:
-                tracker.commit(server_data)
                 self._log("INFO", f"群 {group_id} 状态无变化", group_id)
                 return "ok"
+            self._log_group_change(group_id, change_msg)
 
-            change_one_line = change_msg.replace("\n", " | ")
-            self._log(
-                "CHANGED",
-                f"群 {group_id} 检测到变化: {change_one_line}",
-                group_id,
+            # 模板渲染
+            final_msg = await self._render_group_notification(
+                group_id, cfg, server_data, change_msg
             )
 
-            server_type = cfg.server_type if cfg else "bedrock"
-
-            # 用户自定义了名称则替换原始 host
-            if cfg and cfg.name and cfg.name != "Minecraft服务器":
-                server_data["name"] = cfg.name
-
-            # 根据模式选择格式：自定义 > 精简 > 完整。空模板使用内置默认值。
-            message_format = getattr(cfg, "message_format", None)
-            if message_format == "custom":
-                if server_data.get("status") == "online":
-                    active_template = (
-                        getattr(cfg, "message_template", "") or DEFAULT_ONLINE_TEMPLATE
-                    )
-                else:
-                    active_template = (
-                        getattr(cfg, "offline_template", "") or DEFAULT_OFFLINE_TEMPLATE
-                    )
-                need_hitokoto = template_needs_hitokoto(active_template)
-                hitokoto = ""
-                if need_hitokoto:
-                    try:
-                        hitokoto = await get_hitokoto() or ""
-                    except Exception as exc:
-                        # 一言是通知的可选字段，外部接口失败时不应阻断状态通知。
-                        self._log("WARN", f"缁?{group_id} 获取一言失败，模板字段置空: {exc}", group_id)
-                status_line = render_template(
-                    active_template,
-                    {**server_data, "change_msg": change_msg},
-                    server_type,
-                    hitokoto or "",
-                )
-                final_msg = status_line
-            else:
-                if message_format == "simple":
-                    effective_simple = True
-                elif message_format == "full":
-                    effective_simple = False
-                else:
-                    effective_simple = self.simple_mode
-                if effective_simple:
-                    status_line = format_server_info_simple(server_data)
-                    final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
-                    need_hitokoto = False
-                else:
-                    full_status = format_server_info(server_data, server_type)
-                    final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
-                    need_hitokoto = True
-
-            if need_hitokoto and message_format != "custom":
-                hitokoto = await get_hitokoto()
-                if hitokoto:
-                    final_msg += f"\n\n💬 {hitokoto}"
-
-            session = self._group_sessions.get(group_id)
-            if not session:
-                session = build_group_session(self.context, group_id)
-                self._group_sessions[group_id] = session
-
-            target = GroupTarget(
-                context=self.context,
-                group_id=group_id,
-                session=session,
-            )
-            sent = await send_to_group(
-                target,
-                final_msg,
-                run_log=self._log_buffer_only,
-            )
+            # 发送
+            sent = await self._send_group_notification(group_id, final_msg)
             if not sent:
                 return "failed"
             tracker.commit(server_data)
             return "changed"
-
         except Exception as e:
             self._log("ERROR", f"检查群 {group_id} 时出错: {e}", group_id)
             return "failed"
+
+    def _resolve_group_check_context(
+        self,
+        group_id: str,
+    ) -> tuple[BaseMcClient | None, ChangeTracker | None, GroupConfig | None]:
+        """解析本轮检查的 client/tracker/配置；任一缺失时返回全 None 表示跳过。"""
+
+        client = self._group_clients.get(group_id)
+        tracker = self._group_trackers.get(group_id)
+        if not client or not tracker:
+            self._log("WARN", f"群 {group_id} 缺少 client/tracker，跳过", group_id)
+            return None, None, None
+        cfg = self.config_mgr.get(group_id)
+        if cfg is None:
+            self._log("WARN", f"群 {group_id} 的配置缺失，跳过", group_id)
+            return None, None, None
+        return client, tracker, cfg
+
+    def _log_group_check_start(self, group_id: str, cfg: GroupConfig) -> None:
+        """输出本轮检查的开始日志（含目标与生效查询源）。"""
+
+        target = format_server_address(cfg.server_ip, cfg.server_port)
+        source_display = self.format_effective_api_source(cfg)
+        self._log(
+            "INFO",
+            f"正在检查群 {group_id} | {cfg.name} ({target}) | API: {source_display}",
+            group_id,
+        )
+
+    async def _query_group_server(
+        self,
+        group_id: str,
+        client: BaseMcClient,
+    ) -> dict | None:
+        """查询单个群的上游服务器状态，失败时记录日志并返回 None。"""
+
+        server_data = await client.get_server_info()
+        if server_data is None:
+            self._log("WARN", f"群 {group_id} 的服务器请求失败，跳过", group_id)
+        return server_data
+
+    def _check_group_changes(
+        self,
+        tracker: ChangeTracker,
+        server_data: dict,
+    ) -> tuple[bool, str]:
+        """变化检测：返回 (是否需要通知, 变化描述)；无变化时直接提交观测。"""
+
+        should_send, change_msg = tracker.check_changes(server_data)
+        if not should_send:
+            tracker.commit(server_data)
+        return should_send, change_msg
+
+    def _log_group_change(self, group_id: str, change_msg: str) -> None:
+        """输出检测到变化的一行日志。"""
+
+        change_one_line = change_msg.replace("\n", " | ")
+        self._log(
+            "CHANGED",
+            f"群 {group_id} 检测到变化: {change_one_line}",
+            group_id,
+        )
+
+    async def _fetch_hitokoto(self, group_id: str) -> str:
+        """获取一言；一言是通知的可选字段，外部接口失败时置空并记录警告。"""
+
+        try:
+            return await get_hitokoto() or ""
+        except Exception as exc:
+            self._log("WARN", f"群 {group_id} 获取一言失败，模板字段置空: {exc}", group_id)
+            return ""
+
+    async def _render_group_notification(
+        self,
+        group_id: str,
+        cfg: GroupConfig,
+        server_data: dict,
+        change_msg: str,
+    ) -> str:
+        """按消息格式渲染通知文本：自定义模板 > 精简 > 完整；空模板使用内置默认值。"""
+
+        # 用户自定义了名称则替换原始 host
+        if cfg.name and cfg.name != "Minecraft服务器":
+            server_data["name"] = cfg.name
+
+        server_type = cfg.server_type
+        message_format = getattr(cfg, "message_format", None)
+        if message_format == "custom":
+            if server_data.get("status") == "online":
+                active_template = (
+                    getattr(cfg, "message_template", "") or DEFAULT_ONLINE_TEMPLATE
+                )
+            else:
+                active_template = (
+                    getattr(cfg, "offline_template", "") or DEFAULT_OFFLINE_TEMPLATE
+                )
+            need_hitokoto = template_needs_hitokoto(active_template)
+            hitokoto = await self._fetch_hitokoto(group_id) if need_hitokoto else ""
+            return render_template(
+                active_template,
+                {**server_data, "change_msg": change_msg},
+                server_type,
+                hitokoto,
+            )
+
+        if message_format == "simple":
+            effective_simple = True
+        elif message_format == "full":
+            effective_simple = False
+        else:
+            effective_simple = self.simple_mode
+
+        if effective_simple:
+            status_line = format_server_info_simple(server_data)
+            final_msg = f"🔔 服务器状态变化：{change_msg}\n\n{status_line}"
+            need_hitokoto = False
+        else:
+            full_status = format_server_info(server_data, server_type)
+            final_msg = f"🔔 服务器状态变化：\n{change_msg}\n\n📊 当前状态：\n{full_status}"
+            need_hitokoto = True
+
+        if need_hitokoto:
+            hitokoto = await self._fetch_hitokoto(group_id)
+            if hitokoto:
+                final_msg += f"\n\n💬 {hitokoto}"
+        return final_msg
+
+    async def _send_group_notification(self, group_id: str, final_msg: str) -> bool:
+        """解析会话并发送群通知；发送失败返回 False。"""
+
+        session = self._group_sessions.get(group_id)
+        if not session:
+            session = build_group_session(self.context, group_id)
+            self._group_sessions[group_id] = session
+
+        target = GroupTarget(
+            context=self.context,
+            group_id=group_id,
+            session=session,
+        )
+        return await send_to_group(
+            target,
+            final_msg,
+            run_log=self._log_buffer_only,
+        )

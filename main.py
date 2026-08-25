@@ -10,7 +10,7 @@
   - utils.notifier      群消息发送
   - utils.hitokoto      一言
 
-版本: v1.2.6
+版本: v1.2.7
 """
 
 from __future__ import annotations
@@ -28,12 +28,14 @@ from .player_stats.renderer import PlayerStatsRenderer, normalize_text_style
 from .player_stats.store import PlayerStatsStore
 from .server_status.model import QuerySource
 from .server_status.renderer import ServerStatusRenderer
-from .server_status.service import (
+from .server_status.exceptions import (
     QueryBusyError,
     QueryClosedError,
     QueryConfigError,
     QueryCooldownError,
     QueryUsageError,
+)
+from .server_status.service import (
     ServerQueryService,
     ServerQuerySettings,
 )
@@ -41,7 +43,7 @@ from .utils.group_config import CONFIG_DATA_DIR, ConfigManager
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.2.6"
+PLUGIN_VERSION = "1.2.7"
 
 
 @register(

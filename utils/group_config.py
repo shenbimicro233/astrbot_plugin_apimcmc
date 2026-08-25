@@ -10,27 +10,11 @@ from typing import Dict, Optional
 from astrbot.api import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
-try:
-    from ..mcserver.template import (
-        LEGACY_CUSTOM_FIELD_KEYS,
-        build_template_from_fields,
-    )
-except (ImportError, ValueError):
-    # 允许独立导入 ``utils``；直接加载纯模板模块，避免触发 mcserver 工厂的
-    # 宿主依赖和跨包相对导入。
-    import importlib.util
-    import sys
+from .template import (
+    LEGACY_CUSTOM_FIELD_KEYS,
+    build_template_from_fields,
+)
 
-    _template_name = "_apimcmc_template_standalone"
-    _template_path = Path(__file__).resolve().parents[1] / "mcserver" / "template.py"
-    _template_spec = importlib.util.spec_from_file_location(_template_name, _template_path)
-    if _template_spec is None or _template_spec.loader is None:
-        raise ImportError("无法加载模板模块")
-    _template_module = importlib.util.module_from_spec(_template_spec)
-    sys.modules[_template_name] = _template_module
-    _template_spec.loader.exec_module(_template_module)
-    LEGACY_CUSTOM_FIELD_KEYS = _template_module.LEGACY_CUSTOM_FIELD_KEYS
-    build_template_from_fields = _template_module.build_template_from_fields
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
 CONFIG_DATA_DIR = Path(get_astrbot_plugin_data_path()) / PLUGIN_NAME

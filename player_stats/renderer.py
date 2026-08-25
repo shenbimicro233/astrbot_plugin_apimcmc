@@ -77,6 +77,12 @@ _DEFAULT_UNIFONT_LICENSE_PATH = UNIFONT_LICENSE_PATH
 _DEFAULT_UNIFONT_SHA256 = UNIFONT_SHA256
 _DEFAULT_UNIFONT_LICENSE_SHA256 = UNIFONT_LICENSE_SHA256
 
+# 文本样式键名说明：
+# - "monocraft" 为历史键名（v1.0.x 起沿用），其实际语义是“普通中文（Unifont）”，
+#   与 Monocraft 字体无关；v1.2.0 默认字体从 Fusion Pixel 换成 Unifont 时保留键名
+#   以兼容已保存配置。未知/非法值也会归一化为该样式。
+# - "galactic" 使用内置 Monocraft 渲染附魔台文字（仅转换英文字母）。
+# - "system" 使用系统/配置字体候选。
 TEXT_STYLE_MONOCRAFT = "monocraft"
 TEXT_STYLE_GALACTIC = "galactic"
 TEXT_STYLE_SYSTEM = "system"
@@ -141,7 +147,7 @@ LogFn = Callable[[str, str], None]
 
 
 def normalize_text_style(value: object) -> TextStyle:
-    """Normalize persisted chart text styles at the renderer boundary."""
+    """在渲染器边界归一化已持久化的图表文字样式。"""
 
     normalized = str(value).strip().lower()
     if normalized == TEXT_STYLE_GALACTIC:
