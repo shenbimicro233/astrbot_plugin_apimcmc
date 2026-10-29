@@ -316,6 +316,8 @@
   .form-group input:disabled { opacity: 0.7; background: var(--bg); }
   .form-row { display: flex; gap: 14px; }
   .form-row .form-group { flex: 1; }
+  .form-hint { display: block; margin-top: 5px; font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+  .form-hint.warn { color: var(--warning-strong); }
   .form-error { font-size: 12px; color: var(--danger); margin-top: 5px; display: none; }
   .form-error.show { display: block; }
   .form-checkbox { display: flex; align-items: center; gap: 8px; }
@@ -482,9 +484,17 @@
     <h2 id="modalTitle">添加配置</h2>
     <form id="configForm" autocomplete="off">
       <div class="form-group">
-        <label for="f_group_id">QQ 群号 <span class="req">*</span></label>
-        <input id="f_group_id" type="text" placeholder="例：123456789" required>
-        <div class="form-error" id="err_group_id">请输入群号</div>
+        <label for="f_group_id">群标识 <span class="req">*</span></label>
+        <input id="f_group_id" type="text" placeholder="传统群号，或 QQ 官方 group_openid" required>
+        <span class="form-hint">传统 QQ 群填写纯数字群号；QQ 官方群填写机器人收到的 group_openid。</span>
+        <div class="form-error" id="err_group_id">请输入群标识</div>
+      </div>
+      <div class="form-group">
+        <label for="f_platform_id">消息平台</label>
+        <select id="f_platform_id">
+          <option value="">自动检测</option>
+        </select>
+        <span class="form-hint" id="platform_hint">留空自动检测：数字群号优先 aiocqhttp，group_openid 优先 QQ 官方。</span>
       </div>
       <div class="form-group">
         <label for="f_name">服务器名称</label>
@@ -635,7 +645,8 @@
       <div class="row"><span class="k">服务器类型</span><span class="badge" data-field="type-badge"></span></div>
       <div class="row"><span class="k">API 源</span><span class="v" data-field="api-source"></span></div>
       <div class="row"><span class="k">消息格式</span><span class="v" data-field="msg-format"></span></div>
-      <div class="row"><span class="k">群号</span><span class="v" data-field="group-id"></span></div>
+      <div class="row"><span class="k">消息平台</span><span class="v" data-field="platform-id"></span></div>
+      <div class="row"><span class="k">群标识</span><span class="v" data-field="group-id"></span></div>
     </div>
     <div class="card-footer">
       <button class="btn btn-secondary btn-sm" data-action="edit">编辑</button>

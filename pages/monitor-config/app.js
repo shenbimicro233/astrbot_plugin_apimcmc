@@ -38,6 +38,7 @@ const ICONS = {
 const state = new Store({
   editingGid: null,
   allCfg: {},
+  platforms: [],
   filter: 'all',
   searchQuery: '',
   logSinceId: 0,
@@ -114,6 +115,53 @@ async function loadTemplateFields() {
   defaultOnlineTemplate = String((result && result.default_online_template) || '');
   defaultOfflineTemplate = String((result && result.default_offline_template) || '');
   renderTemplateFields();
+}
+
+function platformLabel(platformId) {
+  if (!platformId) return '自动检测';
+  const platform = state.get('platforms').find(item => item.id === platformId);
+  return platform ? platform.display : `未知平台 (${platformId})`;
+}
+
+function renderPlatformOptions(selected) {
+  const select = $('f_platform_id');
+  if (!select) return;
+  select.replaceChildren(new Option('自动检测', ''));
+  for (const platform of state.get('platforms')) {
+    const label = platform.display || platform.id;
+    select.append(new Option(label, platform.id));
+  }
+  const value = String(selected || '');
+  const exists = Array.from(select.options).some(option => option.value === value);
+  if (value && !exists) {
+    select.add(new Option(`未知平台 (${value})`, value));
+  }
+  select.value = value;
+}
+
+async function loadPlatforms() {
+  const hint = $('platform_hint');
+  try {
+    const result = ensureApiOk(await bridge.apiGet('platforms'));
+    const platforms = Array.isArray(result && result.platforms) ? result.platforms : [];
+    state.set('platforms', platforms.filter(item => (
+      item && typeof item.id === 'string' && item.id
+    )));
+    renderPlatformOptions($('f_platform_id') && $('f_platform_id').value);
+    if (hint) {
+      hint.textContent = state.get('platforms').length
+        ? '留空自动检测：数字群号优先 aiocqhttp，group_openid 优先 QQ 官方。'
+        : '未读取到可用平台，自动检测仍可使用。';
+      hint.classList.toggle('warn', state.get('platforms').length === 0);
+    }
+  } catch (error) {
+    state.set('platforms', []);
+    renderPlatformOptions($('f_platform_id') && $('f_platform_id').value);
+    if (hint) {
+      hint.textContent = '平台列表加载失败，当前仅保留自动检测，不影响其他配置。';
+      hint.classList.add('warn');
+    }
+  }
 }
 
 function getTemplateValue(id, fallback = '') {
@@ -295,7 +343,7 @@ function createCardElement(gid, cfg) {
   if (nameEl) nameEl.textContent = cfg.name || '未命名';
 
   const subEl = bind('group-sub');
-  if (subEl) subEl.textContent = `群号 ${gid}`;
+  if (subEl) subEl.textContent = `群标识 ${gid}`;
 
   const badgeEl = bind('status-badge');
   if (badgeEl) {
@@ -331,6 +379,9 @@ function createCardElement(gid, cfg) {
       : (cfg.message_format === 'simple' ? '简化'
         : (cfg.message_format === 'full' ? '完整' : '全局默认'));
   }
+
+  const platformEl = bind('platform-id');
+  if (platformEl) platformEl.textContent = platformLabel(cfg.platform_id);
 
   const gidEl = bind('group-id');
   if (gidEl) {
@@ -439,7 +490,7 @@ function openAddModal() {
   state.set('editingGid', null);
   const mt = $('modalTitle');
   if (mt) mt.textContent = '添加配置';
-  setFormValues({ group_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, message_format: 'full', message_template: defaultOnlineTemplate, offline_template: defaultOfflineTemplate, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true, enable_srv: true });
+  setFormValues({ group_id: '', platform_id: '', name: 'Minecraft服务器', ip: '', port: '19132', type: 'bedrock', enabled: true, message_format: 'full', message_template: defaultOnlineTemplate, offline_template: defaultOfflineTemplate, api_source: '', mcmotdapi_host: '', mcmotdapi_ssl: true, enable_srv: true });
   clearFormErrors();
   const mo = $('modalOverlay');
   if (mo) mo.classList.add('active');
@@ -456,6 +507,7 @@ function editConfig(gid) {
   if (mt) mt.textContent = '编辑配置 - ' + gid;
   setFormValues({
     group_id: gid, name: cfg.name || '', ip: cfg.server_ip || '',
+    platform_id: cfg.platform_id || '',
     port: String(cfg.server_port || ''), type: cfg.server_type || 'bedrock',
     enabled: cfg.enabled !== false,
     message_format: cfg.message_format,
@@ -552,6 +604,7 @@ function setFormValues(v) {
   if (f_ssl) f_ssl.checked = v.mcmotdapi_ssl !== false;
   const f_as = $('f_api_source');
   if (f_as) f_as.value = v.api_source || '';
+  renderPlatformOptions(v.platform_id || '');
 
   // 模式单选框
   const mode = ['full', 'simple', 'custom'].includes(v.message_format)
@@ -571,7 +624,7 @@ function setFormValues(v) {
 // ── 删除 ──
 
 async function deleteConfig(gid) {
-  const ok = await showConfirm('确认删除？', `群号 ${gid} 的监控配置将被永久删除。`);
+  const ok = await showConfirm('确认删除？', `群标识 ${gid} 的监控配置将被永久删除。`);
   if (!ok) return;
   try {
     ensureApiOk(await bridge.apiPost('configs/delete', { group_id: gid }));
@@ -813,6 +866,7 @@ function bindFormSubmit() {
 
     const data = {
       group_id: groupId,
+      platform_id: ($('f_platform_id') && $('f_platform_id').value) || null,
       name: ($('f_name').value || '').trim() || 'Minecraft服务器',
       server_ip: ip,
       server_port: port,
@@ -911,6 +965,7 @@ async function main() {
   try {
     await bridge.ready();
     await loadTemplateFields();
+    void loadPlatforms();
     bindStaticUi();
     bindFilters();
     bindFormSubmit();

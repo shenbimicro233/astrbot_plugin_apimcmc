@@ -36,6 +36,28 @@ MAX_ICON_DIMENSION = 512
 MAX_ICON_PIXELS = MAX_ICON_DIMENSION * MAX_ICON_DIMENSION
 ICON_SIZE = 128
 
+STATUS_PRESENTATION: dict[CardStatus, tuple[str, str]] = {
+    CardStatus.ONLINE: ("在线", "#8be878"),
+    CardStatus.OFFLINE: ("离线", "#f0b762"),
+    CardStatus.UNREACHABLE: ("不可达", "#f37a7a"),
+}
+EDITION_DISPLAY_NAMES = {
+    ServerEdition.JAVA: "Java",
+    ServerEdition.BEDROCK: "Bedrock",
+}
+EDITION_CARD_TITLES = {
+    ServerEdition.JAVA: "[MCJE服务器信息]",
+    ServerEdition.BEDROCK: "[MCBE服务器信息]",
+}
+CARD_FIELD_LABELS = {
+    "address": "测试地址: ",
+    "edition": "类型: ",
+    "software": "服务端名: ",
+    "protocol": "协议版本: ",
+    "players": "当前人数: ",
+    "latency": "测试延迟: ",
+}
+
 _DEFAULT_FONT_CANDIDATES = (
     "Microsoft YaHei UI",
     "Microsoft YaHei",
@@ -335,14 +357,17 @@ class ServerStatusRenderer:
     @staticmethod
     def _visible_status(status: CardStatus) -> tuple[str, str]:
         if status is CardStatus.ONLINE:
-            return "在线", "#8be878"
+            return STATUS_PRESENTATION[CardStatus.ONLINE]
         if status is CardStatus.OFFLINE:
-            return "离线", "#f0b762"
-        return "不可达", "#f37a7a"
+            return STATUS_PRESENTATION[CardStatus.OFFLINE]
+        return STATUS_PRESENTATION[CardStatus.UNREACHABLE]
 
     @staticmethod
     def _visible_edition(edition: ServerEdition) -> str:
-        return "Java" if edition is ServerEdition.JAVA else "Bedrock"
+        display_edition = (
+            ServerEdition.JAVA if edition is ServerEdition.JAVA else ServerEdition.BEDROCK
+        )
+        return EDITION_DISPLAY_NAMES[display_edition]
 
     @staticmethod
     def _visible_players(card: StatusCard) -> str:
@@ -420,7 +445,10 @@ class ServerStatusRenderer:
 
         title_x = margin + ICON_SIZE + 16
         title_max_width = IMAGE_WIDTH - margin - title_x
-        header1 = "[MCJE服务器信息]" if card.edition is ServerEdition.JAVA else "[MCBE服务器信息]"
+        title_edition = (
+            ServerEdition.JAVA if card.edition is ServerEdition.JAVA else ServerEdition.BEDROCK
+        )
+        header1 = EDITION_CARD_TITLES[title_edition]
         status_text, status_color = self._visible_status(card.status)
         self._draw_text(
             draw,
@@ -448,12 +476,16 @@ class ServerStatusRenderer:
         )
 
         rows = (
-            ("测试地址: ", card.address, white),
-            ("类型: ", self._visible_edition(card.edition), white),
-            ("服务端名: ", card.software or "--", white),
-            ("协议版本: ", card.protocol or "--", white),
-            ("当前人数: ", self._visible_players(card), white),
-            ("测试延迟: ", self._visible_latency(card), self._latency_color(card)),
+            (CARD_FIELD_LABELS["address"], card.address, white),
+            (CARD_FIELD_LABELS["edition"], self._visible_edition(card.edition), white),
+            (CARD_FIELD_LABELS["software"], card.software or "--", white),
+            (CARD_FIELD_LABELS["protocol"], card.protocol or "--", white),
+            (CARD_FIELD_LABELS["players"], self._visible_players(card), white),
+            (
+                CARD_FIELD_LABELS["latency"],
+                self._visible_latency(card),
+                self._latency_color(card),
+            ),
         )
         label_font = self._font(extra_size)
         label_max_width = int(max(draw.textlength(label, font=label_font) for label, _, _ in rows))
@@ -557,6 +589,9 @@ class ServerStatusRenderer:
 
 
 __all__ = [
+    "CARD_FIELD_LABELS",
+    "EDITION_CARD_TITLES",
+    "EDITION_DISPLAY_NAMES",
     "ICON_SIZE",
     "IMAGE_HEIGHT",
     "IMAGE_WIDTH",
@@ -566,6 +601,7 @@ __all__ = [
     "MAX_ICON_PIXELS",
     "RendererClosedError",
     "STALE_AFTER",
+    "STATUS_PRESENTATION",
     "TEMP_FILE_PREFIX",
     "ServerStatusRenderer",
 ]

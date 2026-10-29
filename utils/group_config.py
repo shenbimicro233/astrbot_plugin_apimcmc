@@ -19,7 +19,7 @@ from .template import (
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
 CONFIG_DATA_DIR = Path(get_astrbot_plugin_data_path()) / PLUGIN_NAME
 CONFIG_FILE = CONFIG_DATA_DIR / "configs.json"
-CONFIG_SCHEMA_VERSION = 2
+CONFIG_SCHEMA_VERSION = 3
 MESSAGE_FORMATS = {"full", "simple", "custom"}
 
 DEFAULT_GROUP_CONFIG = {
@@ -36,7 +36,36 @@ DEFAULT_GROUP_CONFIG = {
     "message_format": None,
     "message_template": "",
     "offline_template": "",
+    "platform_id": None,
 }
+
+
+def normalize_group_id(value: object) -> str:
+    """校验传统正整数群号或非空、无空白的群标识。"""
+
+    if isinstance(value, bool):
+        raise ValueError("group_id 必须是正整数群号或非空群标识")
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("group_id 必须是正整数群号或非空群标识")
+        return str(value)
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        raise ValueError("group_id 必须是正整数群号或非空群标识，且不能包含空白")
+    if value.isascii() and value.isdigit() and int(value) <= 0:
+        raise ValueError("传统数字 group_id 必须是正整数")
+    return value
+
+
+def normalize_platform_id(value: object) -> str | None:
+    """校验平台实例 ID；空字符串和 null 表示自动检测。"""
+
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError("platform_id 必须是字符串或 null")
+    if ":" in value or any(char.isspace() for char in value):
+        raise ValueError("platform_id 不能包含冒号或空白")
+    return value
 
 
 def is_srv_port_optional(server_type: str, enable_srv: bool) -> bool:
@@ -107,7 +136,7 @@ class GroupConfig:
     def __init__(self, data: dict):
         if not isinstance(data, dict):
             raise TypeError("群配置必须是对象")
-        self.group_id = str(data.get("group_id", ""))
+        self.group_id = normalize_group_id(data.get("group_id", ""))
         self.name = str(data.get("name", DEFAULT_GROUP_CONFIG["name"]))
         self.server_ip = str(data.get("server_ip", ""))
         self.server_port = normalize_server_port(
@@ -148,8 +177,11 @@ class GroupConfig:
 
         self.created_at = str(data.get("created_at", ""))
 
+        # 空值表示由群标识形态自动选择消息平台。
+        self.platform_id = normalize_platform_id(data.get("platform_id"))
+
     def to_dict(self) -> dict:
-        """返回 v2 可序列化配置；旧字段不会再次写入。"""
+        """返回 v3 可序列化配置；旧字段不会再次写入。"""
 
         return {
             "group_id": self.group_id,
@@ -166,10 +198,11 @@ class GroupConfig:
             "message_template": self.message_template,
             "offline_template": self.offline_template,
             "created_at": self.created_at,
+            "platform_id": self.platform_id,
         }
 
     def is_valid(self) -> bool:
-        """检查群号、地址和端口/SRV 配置是否有效。"""
+        """检查群标识、地址和端口/SRV 配置是否有效。"""
 
         port_valid = self.server_port is not None or is_srv_port_optional(
             self.server_type, self.enable_srv
@@ -177,13 +210,13 @@ class GroupConfig:
         return bool(self.group_id and self.server_ip and port_valid)
 
     def has_query_identity(self) -> bool:
-        """检查解析全局策略前必须存在的群号和地址。"""
+        """检查解析全局策略前必须存在的群标识和地址。"""
 
         return bool(self.group_id and self.server_ip)
 
 
 class ConfigManager:
-    """每群配置管理器，负责 v1 -> v2 迁移和原子写入。"""
+    """每群配置管理器，负责旧版 schema 迁移和原子写入。"""
 
     def __init__(self, config_file: str | Path | None = None):
         self.config_file = Path(config_file) if config_file else CONFIG_FILE
@@ -266,9 +299,7 @@ class ConfigManager:
         }
 
     def save_group(self, data: dict) -> GroupConfig:
-        gid = str(data.get("group_id", ""))
-        if not gid:
-            raise ValueError("group_id 不能为空")
+        gid = normalize_group_id(data.get("group_id", ""))
         existing = self._groups.get(gid)
         created_at = (
             existing.created_at if existing else datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -27,7 +27,7 @@ from ..utils.template import (
 )
 from ..player_stats.model import TargetSignature
 from ..player_stats.store import PlayerStatsStore
-from ..utils import GroupTarget, build_group_session, send_to_group
+from ..utils import GroupTarget, send_to_group
 from ..utils.group_config import ConfigManager, GroupConfig, is_srv_port_optional
 from ..utils.hitokoto import get_hitokoto
 from .tracker import ChangeTracker
@@ -206,7 +206,17 @@ class MonitorService:
                 ssl,
                 True,
             )
-        assert cfg.server_port is not None
+        if cfg.server_port is None:
+            if source == "mcstatus" and cfg.server_type == "java" and enable_srv is True:
+                return (
+                    cfg.server_ip,
+                    None,
+                    cfg.server_type,
+                    source,
+                    host,
+                    ssl,
+                )
+            raise ValueError("空端口仅允许用于已启用 SRV 的 Java mcstatus 配置")
         return (
             cfg.server_ip,
             cfg.server_port,
@@ -574,13 +584,9 @@ class MonitorService:
         message_format = getattr(cfg, "message_format", None)
         if message_format == "custom":
             if server_data.get("status") == "online":
-                active_template = (
-                    getattr(cfg, "message_template", "") or DEFAULT_ONLINE_TEMPLATE
-                )
+                active_template = getattr(cfg, "message_template", "") or DEFAULT_ONLINE_TEMPLATE
             else:
-                active_template = (
-                    getattr(cfg, "offline_template", "") or DEFAULT_OFFLINE_TEMPLATE
-                )
+                active_template = getattr(cfg, "offline_template", "") or DEFAULT_OFFLINE_TEMPLATE
             need_hitokoto = template_needs_hitokoto(active_template)
             hitokoto = await self._fetch_hitokoto(group_id) if need_hitokoto else ""
             return render_template(
@@ -613,20 +619,17 @@ class MonitorService:
         return final_msg
 
     async def _send_group_notification(self, group_id: str, final_msg: str) -> bool:
-        """解析会话并发送群通知；发送失败返回 False。"""
-
-        session = self._group_sessions.get(group_id)
-        if not session:
-            session = build_group_session(self.context, group_id)
-            self._group_sessions[group_id] = session
+        """携带缓存会话和每群配置发送通知；发送失败返回 False。"""
 
         target = GroupTarget(
             context=self.context,
             group_id=group_id,
-            session=session,
+            # 缓存缺失时交给 notifier 依据该群 platform_id 主动构造。
+            session=self._group_sessions.get(group_id),
         )
         return await send_to_group(
             target,
             final_msg,
             run_log=self._log_buffer_only,
+            config_mgr=self.config_mgr,
         )

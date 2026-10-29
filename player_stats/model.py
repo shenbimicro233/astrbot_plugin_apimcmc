@@ -16,7 +16,7 @@ SLOT_SECONDS: Final = BUCKET_MINUTES * 60
 WINDOW_DURATION: Final = timedelta(hours=24)
 WINDOW_SLOT_COUNT: Final = int(WINDOW_DURATION.total_seconds() // SLOT_SECONDS)
 
-LegacyTargetSignature: TypeAlias = tuple[str, int, str, str, str, bool | None]
+LegacyTargetSignature: TypeAlias = tuple[str, int | None, str, str, str, bool | None]
 SrvEnabledTargetSignature: TypeAlias = tuple[
     str,
     int | None,
@@ -145,9 +145,15 @@ def normalize_target_signature(signature: Sequence[object]) -> TargetSignature:
         raise TypeError("mcmotdapi_ssl must be a boolean or null")
 
     if len(signature) == 6:
-        port = normalize_count(signature[1], "server_port")
-        if not 1 <= port <= 65535:
-            raise ValueError("server_port must be between 1 and 65535")
+        raw_port = signature[1]
+        if raw_port is None:
+            if server_type != "java" or api_source != "mcstatus":
+                raise ValueError("six-value null-port signatures require mcstatus Java")
+            port = None
+        else:
+            port = normalize_count(raw_port, "server_port")
+            if not 1 <= port <= 65535:
+                raise ValueError("server_port must be between 1 and 65535")
         return server_ip, port, server_type, api_source, api_host, ssl
 
     srv_enabled = signature[6]

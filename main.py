@@ -10,7 +10,7 @@
   - utils.notifier      群消息发送
   - utils.hitokoto      一言
 
-版本: v1.2.7
+版本: v1.3.0
 """
 
 from __future__ import annotations
@@ -39,17 +39,28 @@ from .server_status.service import (
     ServerQueryService,
     ServerQuerySettings,
 )
+from .utils.command_copy import (
+    GROUP_CHAT_ONLY_REPLY,
+    INVALID_SERVER_CONFIG_REPLY,
+    SERVER_QUERY_USAGE_REPLY,
+)
 from .utils.group_config import CONFIG_DATA_DIR, ConfigManager
+from .utils.qq_official_reply import (
+    get_event_sender_id,
+    image_result,
+    send_image_result,
+    text_result,
+)
 from .web import WebApiConfig, WebApiHandler
 
 PLUGIN_NAME = "astrbot_plugin_minecraft_monitor_plus"
-PLUGIN_VERSION = "1.2.7"
+PLUGIN_VERSION = "1.3.0"
 
 
 @register(
     "astrbot_plugin_minecraft_monitor_plus",
     "shenbimicro233",
-    "Minecraft服务器监控插件，支持为每个群独立配置服务器监控。通过WebUI管理每群配置，定时检测服务器状态变化并通过机器人发送通知。",
+    "Minecraft服务器监控插件，支持QQ官方平台与多机器人选择。通过WebUI管理每群配置，定时检测服务器状态变化并通过机器人发送通知。",
     PLUGIN_VERSION,
 )
 class MyPlugin(Star):
@@ -125,6 +136,7 @@ class MyPlugin(Star):
             monitor=self.monitor,
             run_logs=self._run_logs,
             run_log=self._run_log,
+            context=context,
         )
         self._web_api.register(context)
 
@@ -259,7 +271,16 @@ class MyPlugin(Star):
             return
         group_id = str(group_id)
         umo = getattr(event, "unified_msg_origin", None)
-        self.monitor.cache_group_session(group_id, umo)
+        cached_umo = self.monitor.cache_group_session(group_id, umo)
+        if not cached_umo:
+            return
+        get_platform_id = getattr(event, "get_platform_id", None)
+        platform_id = str(get_platform_id()) if callable(get_platform_id) else ""
+        self._run_log(
+            "INFO",
+            f"已缓存群会话 | group_id={group_id} | platform_id={platform_id}",
+            group_id,
+        )
 
     @staticmethod
     def _has_valid_server_query_arity(event: AstrMessageEvent) -> bool:
@@ -277,36 +298,30 @@ class MyPlugin(Star):
                 return len(tokens[index + 1 :]) <= 2
         return True
 
-    @staticmethod
-    def _server_query_sender_id(event: AstrMessageEvent) -> str:
-        get_sender_id = getattr(event, "get_sender_id", None)
-        if callable(get_sender_id):
-            return str(get_sender_id())
-        return ""
-
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("start_server_monitor")
+    @filter.command("启动监控", alias={"start_server_monitor"})
     async def start_server_monitor_task(self, event: AstrMessageEvent):
         """启动 Minecraft 服务器监控任务。"""
         self._cache_event_session(event)
         if not self.monitor.start():
-            yield event.plain_result("服务器监控任务已经在运行中")
+            yield text_result(event, "服务器监控任务已经在运行中")
             return
         self._run_log("INFO", "启动服务器监控任务")
-        yield event.plain_result(
-            f"✅ 服务器监控任务已启动，每{self.check_interval}秒检查一次所有已配置服务器的状态"
+        yield text_result(
+            event,
+            f"✅ 服务器监控任务已启动，每{self.check_interval}秒检查一次所有已配置服务器的状态",
         )
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("stop_server_monitor")
+    @filter.command("停止监控", alias={"stop_server_monitor"})
     async def stop_server_monitor_task(self, event: AstrMessageEvent):
         """停止 Minecraft 服务器监控任务。"""
         self._cache_event_session(event)
         if self.monitor.stop():
             self._run_log("INFO", "停止服务器监控任务")
-            yield event.plain_result("✅ 服务器监控任务已停止")
+            yield text_result(event, "✅ 服务器监控任务已停止")
         else:
-            yield event.plain_result("❌ 监控任务未在运行")
+            yield text_result(event, "❌ 监控任务未在运行")
 
     @filter.permission_type(filter.PermissionType.MEMBER)
     @filter.command("查询")
@@ -318,12 +333,14 @@ class MyPlugin(Star):
     ):
         """查询服务器状态并返回本地生成的状态图片。"""
 
+        sender_id = get_event_sender_id(event)
         group_id = event.get_group_id()
         if not group_id:
-            yield event.plain_result("❌ 该命令仅在群聊中使用")
+            yield text_result(event, GROUP_CHAT_ONLY_REPLY, mention=True)
             return
+        self._cache_event_session(event)
         if not self._has_valid_server_query_arity(event):
-            yield event.plain_result("❌ 用法：/查询 [java|bedrock] [地址]")
+            yield text_result(event, SERVER_QUERY_USAGE_REPLY, mention=True)
             return
 
         group_id = str(group_id)
@@ -335,23 +352,27 @@ class MyPlugin(Star):
                 address,
             )
         except QueryUsageError:
-            yield event.plain_result("❌ 用法：/查询 [java|bedrock] [地址]")
+            yield text_result(event, SERVER_QUERY_USAGE_REPLY, mention=True)
             return
         except QueryConfigError:
-            yield event.plain_result("❌ 当前群的服务器配置无效，请管理员检查配置")
+            yield text_result(
+                event,
+                INVALID_SERVER_CONFIG_REPLY,
+                mention=True,
+            )
             return
 
         try:
             card = await self.server_query_service.query(
                 request,
                 group_id=group_id,
-                sender_id=self._server_query_sender_id(event),
+                sender_id=sender_id,
             )
         except QueryCooldownError:
-            yield event.plain_result("⏳ 查询过于频繁，请稍后再试")
+            yield text_result(event, "⏳ 查询过于频繁，请稍后再试", mention=True)
             return
         except QueryBusyError:
-            yield event.plain_result("⏳ 当前查询请求较多，请稍后再试")
+            yield text_result(event, "⏳ 当前查询请求较多，请稍后再试", mention=True)
             return
         except QueryClosedError:
             return
@@ -368,9 +389,16 @@ class MyPlugin(Star):
                 f"生成群 {group_id} 的查询图片失败: {type(exc).__name__}",
                 group_id,
             )
-            yield event.plain_result("❌ 生成查询图片失败，请稍后重试")
+            yield text_result(event, "❌ 生成查询图片失败，请稍后重试", mention=True)
             return
-        yield event.image_result(str(image_path))
+        if await send_image_result(
+            event,
+            image_path,
+            caption="查询结果如下：",
+            log=self._run_log,
+        ):
+            return
+        yield image_result(event, image_path, mention=True)
 
     @filter.permission_type(filter.PermissionType.MEMBER)
     @filter.command("在线统计")
@@ -379,8 +407,9 @@ class MyPlugin(Star):
 
         group_id = event.get_group_id()
         if not group_id:
-            yield event.plain_result("❌ 该命令仅在群聊中使用")
+            yield text_result(event, GROUP_CHAT_ONLY_REPLY)
             return
+        self._cache_event_session(event)
         group_id = str(group_id)
 
         cfg = self.config_mgr.get(group_id)
@@ -388,15 +417,16 @@ class MyPlugin(Star):
         if not cfg or not (
             is_query_config_valid(cfg) if callable(is_query_config_valid) else cfg.is_valid()
         ):
-            yield event.plain_result(
-                "❌ 当前群未配置监控，请管理员在 WebUI 插件页面「Minecraft服务器监控」中添加配置"
+            yield text_result(
+                event,
+                "❌ 当前群未配置监控，请管理员在 WebUI 插件页面「Minecraft服务器监控」中添加配置",
             )
             return
 
         try:
             target_signature = self.monitor.get_target_signature(group_id)
             if target_signature is None:
-                yield event.plain_result("❌ 当前群的服务器配置无效，请管理员检查配置")
+                yield text_result(event, INVALID_SERVER_CONFIG_REPLY)
                 return
             now = datetime.now().astimezone()
             series = await asyncio.to_thread(
@@ -405,8 +435,8 @@ class MyPlugin(Star):
                 target_signature,
             )
             if series is None or not series.observations:
-                yield event.plain_result(
-                    "📊 最近24小时暂无在线人数统计，请先启动服务器监控并等待成功查询"
+                yield text_result(
+                    event, "📊 最近24小时暂无在线人数统计，请先启动服务器监控并等待成功查询"
                 )
                 return
 
@@ -416,14 +446,21 @@ class MyPlugin(Star):
                 server_type=cfg.server_type,
                 now=now,
             )
-            yield event.image_result(str(image_path))
+            if await send_image_result(
+                event,
+                image_path,
+                caption="在线统计如下：",
+                log=self._run_log,
+            ):
+                return
+            yield image_result(event, image_path)
         except Exception as exc:
             self._run_log(
                 "WARN",
                 f"生成群 {group_id} 的玩家统计图失败: {type(exc).__name__}",
                 group_id,
             )
-            yield event.plain_result("❌ 生成在线统计图失败，请稍后重试")
+            yield text_result(event, "❌ 生成在线统计图失败，请稍后重试")
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("重置监控")
@@ -431,11 +468,15 @@ class MyPlugin(Star):
         """重置当前群的服务器状态缓存，下次检测视为首次检测。"""
         group_id = event.get_group_id()
         if not group_id:
-            yield event.plain_result("❌ 该命令仅在群聊中使用")
+            yield text_result(event, GROUP_CHAT_ONLY_REPLY)
             return
+        self._cache_event_session(event)
         group_id = str(group_id)
         if self.monitor.reset_tracker(group_id):
             self._run_log("INFO", f"群 {group_id} 的监控状态缓存已重置", group_id)
-            yield event.plain_result("✅ 当前群的监控状态缓存已重置，下次检测将视为首次检测")
+            yield text_result(
+                event,
+                "✅ 当前群的监控状态缓存已重置，下次检测将视为首次检测",
+            )
         else:
-            yield event.plain_result("❌ 当前群未配置监控")
+            yield text_result(event, "❌ 当前群未配置监控")

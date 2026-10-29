@@ -8,9 +8,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from astrbot.api.web import error_response, json_response, request
+
+if TYPE_CHECKING:
+    from astrbot.api.star import Context
 
 from ..utils.template import (
     DEFAULT_OFFLINE_TEMPLATE,
@@ -31,7 +34,10 @@ from ..utils.group_config import (
     DEFAULT_GROUP_CONFIG,
     ConfigManager,
     is_srv_port_optional,
+    normalize_group_id,
+    normalize_platform_id,
 )
+from ..utils.notifier import get_available_platforms
 
 RunLogFn = Callable[[str, str, str | None], None]
 
@@ -60,6 +66,7 @@ class WebApiHandler:
         monitor: MonitorService,
         run_logs: RunLogBuffer,
         run_log: RunLogFn,
+        context: "Context | None" = None,
     ):
         """初始化 Web API 处理器。
 
@@ -69,6 +76,7 @@ class WebApiHandler:
             monitor: 监控服务实例。
             run_logs: WebUI 运行日志缓冲区。
             run_log: 同时写缓冲区和 AstrBot logger 的日志函数。
+            context: 可选 AstrBot Context，用于查询 platform_manager。
         """
         self.plugin_name = config.plugin_name
         self.check_interval = config.check_interval
@@ -76,20 +84,22 @@ class WebApiHandler:
         self.monitor = monitor
         self.run_logs = run_logs
         self._run_log = run_log
+        self.context = context
+
+    def _get_available_platforms(self) -> list[dict]:
+        """返回 AstrBot 当前注册的平台实例。"""
+
+        return get_available_platforms(self.context)
 
     @staticmethod
     def _parse_group_id(value: object) -> str:
-        if isinstance(value, bool):
-            raise ValueError("group_id 必须是正整数群号")
-        if isinstance(value, int):
-            group_id = str(value)
-        elif isinstance(value, str):
-            group_id = value.strip()
-        else:
-            raise ValueError("group_id 必须是正整数群号")
-        if not group_id or not group_id.isascii() or not group_id.isdigit() or int(group_id) <= 0:
-            raise ValueError("group_id 必须是正整数群号")
-        return group_id
+        """校验传统正整数群号或 QQ 官方 group_openid。"""
+        return normalize_group_id(value)
+
+    @staticmethod
+    def _parse_platform_id(value: object) -> str | None:
+        """校验平台实例 ID；`null` 与空字符串统一归一为自动检测。"""
+        return normalize_platform_id(value)
 
     @staticmethod
     def _parse_port(value: object) -> int:
@@ -273,6 +283,7 @@ class WebApiHandler:
             "message_format": raw_format,
             "message_template": message_template,
             "offline_template": offline_template,
+            "platform_id": cls._parse_platform_id(body.get("platform_id")),
         }
 
     def register(self, context) -> None:
@@ -287,6 +298,7 @@ class WebApiHandler:
             (f"{prefix}/stats", self.api_get_stats, ["GET"], "获取运行时状态"),
             (f"{prefix}/logs", self.api_get_logs, ["GET"], "获取监控运行日志（增量）"),
             (f"{prefix}/logs/clear", self.api_clear_logs, ["POST"], "清空监控运行日志"),
+            (f"{prefix}/platforms", self.api_get_platforms, ["GET"], "获取可用平台列表"),
         ]
         for path, handler, methods, desc in apis:
             context.register_web_api(path, handler, methods, desc)
@@ -447,3 +459,17 @@ class WebApiHandler:
         except Exception as e:
             self._run_log("ERROR", f"WebUI: 清空日志失败: {e}", None)
             return error_response("清空日志失败", status_code=500)
+
+    async def api_get_platforms(self):
+        """获取可用的机器人平台列表。"""
+        try:
+            platforms = self._get_available_platforms()
+            return json_response(
+                {
+                    "platforms": platforms,
+                    "default": None,
+                }
+            )
+        except Exception as e:
+            self._run_log("ERROR", f"WebUI: 获取平台列表失败: {e}", None)
+            return error_response("获取平台列表失败", status_code=500)
